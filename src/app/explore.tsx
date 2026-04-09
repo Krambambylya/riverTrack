@@ -1,181 +1,303 @@
-import { Image } from 'expo-image';
-import { SymbolView } from 'expo-symbols';
-import React from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { router } from 'expo-router';
+import { AppleMaps } from 'expo-maps';
+import * as Location from 'expo-location';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
-import { ExternalLink } from '@/components/external-link';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Collapsible } from '@/components/ui/collapsible';
-import { WebBadge } from '@/components/web-badge';
-import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
-import { useTheme } from '@/hooks/use-theme';
+const FALLBACK_CENTER = { latitude: 48.67, longitude: 45.29 };
 
-export default function TabTwoScreen() {
-  const safeAreaInsets = useSafeAreaInsets();
-  const insets = {
-    ...safeAreaInsets,
-    bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three,
+export default function ExploreScreen() {
+  const [startLat, setStartLat] = useState('');
+  const [startLon, setStartLon] = useState('');
+  const [finishLat, setFinishLat] = useState('');
+  const [finishLon, setFinishLon] = useState('');
+  const [selectionMode, setSelectionMode] = useState<'start' | 'finish'>('start');
+  const [mapCenter, setMapCenter] = useState(FALLBACK_CENTER);
+
+  useEffect(() => {
+    let active = true;
+
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted') return;
+
+        const position = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        });
+        if (!active) return;
+
+        setMapCenter({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+        });
+      } catch (error) {
+        // keep fallback center
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const isValid = useMemo(() => {
+    const values = [startLat, startLon, finishLat, finishLon].map((value) => Number(value));
+    return values.every((value) => Number.isFinite(value));
+  }, [startLat, startLon, finishLat, finishLon]);
+  const hasStartPoint = useMemo(
+    () => Number.isFinite(Number(startLat)) && Number.isFinite(Number(startLon)),
+    [startLat, startLon]
+  );
+  const hasFinishPoint = useMemo(
+    () => Number.isFinite(Number(finishLat)) && Number.isFinite(Number(finishLon)),
+    [finishLat, finishLon]
+  );
+
+  const startNavigation = () => {
+    if (!isValid) return;
+    router.navigate({
+      pathname: '/map',
+      params: {
+        startLat,
+        startLon,
+        finishLat,
+        finishLon,
+      },
+    });
   };
-  const theme = useTheme();
 
-  const contentPlatformStyle = Platform.select({
-    android: {
-      paddingTop: insets.top,
-      paddingLeft: insets.left,
-      paddingRight: insets.right,
-      paddingBottom: insets.bottom,
-    },
-    web: {
-      paddingTop: Spacing.six,
-      paddingBottom: Spacing.four,
-    },
-  });
+  const setSelectedPointFromMap = (event: any) => {
+    const coordinates = event?.coordinates ?? event?.nativeEvent?.coordinates;
+    if (!coordinates) return;
+
+    const nextLat = String(Number(coordinates.latitude).toFixed(6));
+    const nextLon = String(Number(coordinates.longitude).toFixed(6));
+
+    if (selectionMode === 'start') {
+      setStartLat(nextLat);
+      setStartLon(nextLon);
+      return;
+    }
+    setFinishLat(nextLat);
+    setFinishLon(nextLon);
+  };
 
   return (
-    <ScrollView
-      style={[styles.scrollView, { backgroundColor: theme.background }]}
-      contentInset={insets}
-      contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}>
-      <ThemedView style={styles.container}>
-        <ThemedView style={styles.titleContainer}>
-          <ThemedText type="subtitle">Explore</ThemedText>
-          <ThemedText style={styles.centerText} themeColor="textSecondary">
-            This starter app includes example{'\n'}code to help you get started.
-          </ThemedText>
+    <ScrollView contentContainerStyle={styles.container}>
+      <Text style={styles.title}>Построение водного маршрута</Text>
+      <Text style={styles.subtitle}>
+        Выберите активную точку и тапните по карте, либо введите координаты вручную
+      </Text>
 
-          <ExternalLink href="https://docs.expo.dev" asChild>
-            <Pressable style={({ pressed }) => pressed && styles.pressed}>
-              <ThemedView type="backgroundElement" style={styles.linkButton}>
-                <ThemedText type="link">Expo documentation</ThemedText>
-                <SymbolView
-                  tintColor={theme.text}
-                  name={{ ios: 'arrow.up.right.square', android: 'link', web: 'link' }}
-                  size={12}
-                />
-              </ThemedView>
-            </Pressable>
-          </ExternalLink>
-        </ThemedView>
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Выбор точки на карте</Text>
+        <View style={styles.modeRow}>
+          <Pressable
+            style={[
+              styles.modeButton,
+              selectionMode === 'start' && styles.modeButtonActiveStart,
+            ]}
+            onPress={() => setSelectionMode('start')}>
+            <Text style={styles.modeButtonText}>Ставлю Старт</Text>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.modeButton,
+              selectionMode === 'finish' && styles.modeButtonActiveFinish,
+            ]}
+            onPress={() => setSelectionMode('finish')}>
+            <Text style={styles.modeButtonText}>Ставлю Финиш</Text>
+          </Pressable>
+        </View>
+        <AppleMaps.View
+          style={styles.map}
+          onMapClick={setSelectedPointFromMap}
+          cameraPosition={{
+            coordinates: mapCenter,
+            zoom: 13,
+          }}
+          markers={[
+            ...(hasStartPoint
+              ? [
+                  {
+                    id: 'start',
+                    coordinates: {
+                      latitude: Number(startLat),
+                      longitude: Number(startLon),
+                    },
+                    title: 'Старт',
+                    tintColor: '#228B22',
+                  },
+                ]
+              : []),
+            ...(hasFinishPoint
+              ? [
+                  {
+                    id: 'finish',
+                    coordinates: {
+                      latitude: Number(finishLat),
+                      longitude: Number(finishLon),
+                    },
+                    title: 'Финиш',
+                    tintColor: '#D93A3A',
+                  },
+                ]
+              : []),
+          ]}
+        />
+      </View>
 
-        <ThemedView style={styles.sectionsWrapper}>
-          <Collapsible title="File-based routing">
-            <ThemedText type="small">
-              This app has two screens: <ThemedText type="code">src/app/index.tsx</ThemedText> and{' '}
-              <ThemedText type="code">src/app/explore.tsx</ThemedText>
-            </ThemedText>
-            <ThemedText type="small">
-              The layout file in <ThemedText type="code">src/app/_layout.tsx</ThemedText> sets up
-              the tab navigator.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/router/introduction">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
+      <View style={styles.card}>
+        <Text style={styles.sectionTitle}>Старт</Text>
+        <TextInput
+          style={styles.input}
+          value={startLat}
+          onChangeText={setStartLat}
+          keyboardType="decimal-pad"
+          placeholder="Широта"
+          placeholderTextColor="#8A8A8A"
+        />
+        <TextInput
+          style={styles.input}
+          value={startLon}
+          onChangeText={setStartLon}
+          keyboardType="decimal-pad"
+          placeholder="Долгота"
+          placeholderTextColor="#8A8A8A"
+        />
 
-          <Collapsible title="Android, iOS, and web support">
-            <ThemedView type="backgroundElement" style={styles.collapsibleContent}>
-              <ThemedText type="small">
-                You can open this project on Android, iOS, and the web. To open the web version,
-                press <ThemedText type="smallBold">w</ThemedText> in the terminal running this
-                project.
-              </ThemedText>
-              <Image
-                source={require('@/assets/images/tutorial-web.png')}
-                style={styles.imageTutorial}
-              />
-            </ThemedView>
-          </Collapsible>
+        <Text style={styles.sectionTitle}>Финиш</Text>
+        <TextInput
+          style={styles.input}
+          value={finishLat}
+          onChangeText={setFinishLat}
+          keyboardType="decimal-pad"
+          placeholder="Широта"
+          placeholderTextColor="#8A8A8A"
+        />
+        <TextInput
+          style={styles.input}
+          value={finishLon}
+          onChangeText={setFinishLon}
+          keyboardType="decimal-pad"
+          placeholder="Долгота"
+          placeholderTextColor="#8A8A8A"
+        />
 
-          <Collapsible title="Images">
-            <ThemedText type="small">
-              For static images, you can use the <ThemedText type="code">@2x</ThemedText> and{' '}
-              <ThemedText type="code">@3x</ThemedText> suffixes to provide files for different
-              screen densities.
-            </ThemedText>
-            <Image source={require('@/assets/images/react-logo.png')} style={styles.imageReact} />
-            <ExternalLink href="https://reactnative.dev/docs/images">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
+        <Pressable
+          style={({ pressed }) => [
+            styles.button,
+            !isValid && styles.buttonDisabled,
+            pressed && isValid && styles.buttonPressed,
+          ]}
+          onPress={startNavigation}
+          disabled={!isValid}>
+          <Text style={styles.buttonText}>Начать</Text>
+        </Pressable>
 
-          <Collapsible title="Light and dark mode components">
-            <ThemedText type="small">
-              This template has light and dark mode support. The{' '}
-              <ThemedText type="code">useColorScheme()</ThemedText> hook lets you inspect what the
-              user&apos;s current color scheme is, and so you can adjust UI colors accordingly.
-            </ThemedText>
-            <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
-              <ThemedText type="linkPrimary">Learn more</ThemedText>
-            </ExternalLink>
-          </Collapsible>
-
-          <Collapsible title="Animations">
-            <ThemedText type="small">
-              This template includes an example of an animated component. The{' '}
-              <ThemedText type="code">src/components/ui/collapsible.tsx</ThemedText> component uses
-              the powerful <ThemedText type="code">react-native-reanimated</ThemedText> library to
-              animate opening this hint.
-            </ThemedText>
-          </Collapsible>
-        </ThemedView>
-        {Platform.OS === 'web' && <WebBadge />}
-      </ThemedView>
+        {!isValid && <Text style={styles.errorText}>Введите корректные координаты.</Text>}
+      </View>
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollView: {
-    flex: 1,
-  },
-  contentContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-  },
   container: {
-    maxWidth: MaxContentWidth,
-    flexGrow: 1,
+    backgroundColor: '#F4F8FF',
+    padding: 20,
+    gap: 12,
+    paddingBottom: 40,
   },
-  titleContainer: {
-    gap: Spacing.three,
-    alignItems: 'center',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.six,
+  title: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#0A2A66',
+    marginBottom: 8,
   },
-  centerText: {
-    textAlign: 'center',
+  subtitle: {
+    fontSize: 15,
+    color: '#5B6785',
+    marginBottom: 20,
   },
-  pressed: {
-    opacity: 0.7,
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
+    padding: 16,
+    gap: 10,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
-  linkButton: {
+  modeRow: {
     flexDirection: 'row',
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
-    borderRadius: Spacing.five,
-    justifyContent: 'center',
-    gap: Spacing.one,
+    gap: 10,
+  },
+  modeButton: {
+    flex: 1,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#D9E1F2',
+    paddingVertical: 10,
+    alignItems: 'center',
+    backgroundColor: '#F8FAFF',
+  },
+  modeButtonActiveStart: {
+    backgroundColor: '#E6F6EA',
+    borderColor: '#228B22',
+  },
+  modeButtonActiveFinish: {
+    backgroundColor: '#FFEAEA',
+    borderColor: '#D93A3A',
+  },
+  modeButtonText: {
+    color: '#1D2A4A',
+    fontWeight: '600',
+  },
+  map: {
+    height: 260,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1D2A4A',
+    marginTop: 6,
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#D9E1F2',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: '#1B2233',
+    backgroundColor: '#FAFCFF',
+  },
+  button: {
+    marginTop: 14,
+    backgroundColor: '#0A66FF',
+    paddingVertical: 13,
+    borderRadius: 12,
     alignItems: 'center',
   },
-  sectionsWrapper: {
-    gap: Spacing.five,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
+  buttonDisabled: {
+    backgroundColor: '#96B7F5',
   },
-  collapsibleContent: {
-    alignItems: 'center',
+  buttonPressed: {
+    opacity: 0.85,
   },
-  imageTutorial: {
-    width: '100%',
-    aspectRatio: 296 / 171,
-    borderRadius: Spacing.three,
-    marginTop: Spacing.two,
+  buttonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
   },
-  imageReact: {
-    width: 100,
-    height: 100,
-    alignSelf: 'center',
+  errorText: {
+    marginTop: 6,
+    color: '#D13B3B',
+    fontSize: 13,
   },
 });
