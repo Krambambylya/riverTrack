@@ -2,11 +2,16 @@ import { router } from 'expo-router';
 import { AppleMaps } from 'expo-maps';
 import * as Location from 'expo-location';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BottomTabInset } from '@/constants/theme';
 
 const FALLBACK_CENTER = { latitude: 48.67, longitude: 45.29 };
 
 export default function ExploreScreen() {
+  const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const isInlineCoordinates = width >= 360;
   const [startLat, setStartLat] = useState('');
   const [startLon, setStartLon] = useState('');
   const [finishLat, setFinishLat] = useState('');
@@ -125,7 +130,11 @@ export default function ExploreScreen() {
   };
 
   return (
-    <ScrollView contentContainerStyle={styles.container}>
+    <ScrollView
+      contentContainerStyle={[
+        styles.container,
+        { paddingTop: insets.top + 12, paddingBottom: insets.bottom + BottomTabInset + 16 },
+      ]}>
       <Text style={styles.title}>Построение водного маршрута</Text>
       <Text style={styles.subtitle}>
         Выберите активную точку и тапните по карте, либо введите координаты вручную
@@ -199,40 +208,44 @@ export default function ExploreScreen() {
           onPress={useCurrentLocationAsStart}>
           <Text style={styles.secondaryButtonText}>Моё местоположение как Старт</Text>
         </Pressable>
-        <TextInput
-          style={styles.input}
-          value={startLat}
-          onChangeText={setStartLat}
-          keyboardType="decimal-pad"
-          placeholder="Широта"
-          placeholderTextColor="#8A8A8A"
-        />
-        <TextInput
-          style={styles.input}
-          value={startLon}
-          onChangeText={setStartLon}
-          keyboardType="decimal-pad"
-          placeholder="Долгота"
-          placeholderTextColor="#8A8A8A"
-        />
+        <View style={[styles.coordinatesRow, isInlineCoordinates ? styles.inlineRow : styles.stackedRow]}>
+          <TextInput
+            style={[styles.input, isInlineCoordinates && styles.inlineInput]}
+            value={startLat}
+            onChangeText={setStartLat}
+            keyboardType="decimal-pad"
+            placeholder="Широта"
+            placeholderTextColor="#8A8A8A"
+          />
+          <TextInput
+            style={[styles.input, isInlineCoordinates && styles.inlineInput]}
+            value={startLon}
+            onChangeText={setStartLon}
+            keyboardType="decimal-pad"
+            placeholder="Долгота"
+            placeholderTextColor="#8A8A8A"
+          />
+        </View>
 
         <Text style={styles.sectionTitle}>Финиш</Text>
-        <TextInput
-          style={styles.input}
-          value={finishLat}
-          onChangeText={setFinishLat}
-          keyboardType="decimal-pad"
-          placeholder="Широта"
-          placeholderTextColor="#8A8A8A"
-        />
-        <TextInput
-          style={styles.input}
-          value={finishLon}
-          onChangeText={setFinishLon}
-          keyboardType="decimal-pad"
-          placeholder="Долгота"
-          placeholderTextColor="#8A8A8A"
-        />
+        <View style={[styles.coordinatesRow, isInlineCoordinates ? styles.inlineRow : styles.stackedRow]}>
+          <TextInput
+            style={[styles.input, isInlineCoordinates && styles.inlineInput]}
+            value={finishLat}
+            onChangeText={setFinishLat}
+            keyboardType="decimal-pad"
+            placeholder="Широта"
+            placeholderTextColor="#8A8A8A"
+          />
+          <TextInput
+            style={[styles.input, isInlineCoordinates && styles.inlineInput]}
+            value={finishLon}
+            onChangeText={setFinishLon}
+            keyboardType="decimal-pad"
+            placeholder="Долгота"
+            placeholderTextColor="#8A8A8A"
+          />
+        </View>
 
         <Pressable
           style={({ pressed }) => [
@@ -261,7 +274,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#F4F8FF',
     padding: 20,
     gap: 12,
-    paddingBottom: 40,
   },
   title: {
     fontSize: 24,
@@ -330,6 +342,18 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#1B2233',
     backgroundColor: '#FAFCFF',
+  },
+  coordinatesRow: {
+    gap: 10,
+  },
+  inlineRow: {
+    flexDirection: 'row',
+  },
+  stackedRow: {
+    flexDirection: 'column',
+  },
+  inlineInput: {
+    flex: 1,
   },
   button: {
     marginTop: 14,
