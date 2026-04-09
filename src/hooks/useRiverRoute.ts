@@ -25,6 +25,10 @@ type OverpassElement =
       type: "way";
       id: number;
       nodes: number[];
+      tags?: {
+        name?: string;
+        waterway?: string;
+      };
     };
 
 type OverpassResponse = {
@@ -34,13 +38,14 @@ type OverpassResponse = {
 type GraphNode = {
   lat: number;
   lon: number;
-  neighbors: { id: number; dist: number }[];
+  neighbors: { id: number; dist: number; riverName?: string }[];
 };
 
 type Graph = Record<number, GraphNode>;
 
 type UseRiverRouteResult = {
   route: PolylinePoint[];
+  rivers: string[];
   loading: boolean;
   error: string | null;
 };
@@ -99,7 +104,7 @@ const buildBBox = (start: LatLng, end: LatLng): string => {
 // =====================
 
 const cache = new Map<string, OverpassResponse>();
-const routeCache = new Map<string, PolylinePoint[]>();
+const routeCache = new Map<string, { route: PolylinePoint[]; rivers: string[] }>();
 
 // =====================
 // API (fallback)
@@ -170,8 +175,9 @@ const buildGraph = (data: OverpassResponse): Graph => {
 
         const dist = distance(graph[a], graph[b]);
 
-        graph[a].neighbors.push({ id: b, dist });
-        graph[b].neighbors.push({ id: a, dist });
+        const riverName = el.tags?.name ?? el.tags?.waterway;
+        graph[a].neighbors.push({ id: b, dist, riverName });
+        graph[b].neighbors.push({ id: a, dist, riverName });
       }
     }
   });
@@ -284,6 +290,7 @@ export const useRiverRoute = (
   end: LatLng | null
 ): UseRiverRouteResult => {
   const [route, setRoute] = useState<PolylinePoint[]>([]);
+  const [rivers, setRivers] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -292,6 +299,7 @@ export const useRiverRoute = (
   useEffect(() => {
     if (!start || !end) {
       setRoute([]);
+      setRivers([]);
       setLoading(false);
       setError(null);
       return;
@@ -300,6 +308,7 @@ export const useRiverRoute = (
     if (distance(start, end) > MAX_DISTANCE) {
       setError("Route too long (>30km)");
       setRoute([]);
+      setRivers([]);
       setLoading(false);
       return;
     }
@@ -309,7 +318,8 @@ export const useRiverRoute = (
     )},${end.lon.toFixed(6)}`;
     const cachedRoute = routeCache.get(routeCacheKey);
     if (cachedRoute) {
-      setRoute(cachedRoute);
+      setRoute(cachedRoute.route);
+      setRivers(cachedRoute.rivers);
       setLoading(false);
       setError(null);
       return;
@@ -322,6 +332,7 @@ export const useRiverRoute = (
     // Сразу очищаем предыдущий маршрут при смене точек,
     // чтобы не показывать старую линию во время нового запроса.
     setRoute([]);
+    setRivers([]);
     setLoading(true);
     setError(null);
 
@@ -340,6 +351,7 @@ export const useRiverRoute = (
 
           if (!startNode || !endNode) {
             setRoute([]);
+            setRivers([]);
             return;
           }
 
@@ -350,16 +362,27 @@ export const useRiverRoute = (
             longitude: graph[id].lon,
           }));
 
+          const usedRivers = new Set<string>();
+          for (let i = 0; i < path.length - 1; i++) {
+            const from = path[i];
+            const to = path[i + 1];
+            const edge = graph[from].neighbors.find((neighbor) => neighbor.id === to);
+            if (edge?.riverName) usedRivers.add(edge.riverName);
+          }
+
           polyline = simplify(polyline, 2);
 
           if (!cancelled) {
-            routeCache.set(routeCacheKey, polyline);
+            const riversFromPath = Array.from(usedRivers);
+            routeCache.set(routeCacheKey, { route: polyline, rivers: riversFromPath });
             setRoute(polyline);
+            setRivers(riversFromPath);
           }
         } catch (e: any) {
           if (!cancelled) {
             setError(e.message || "Route error");
             setRoute([]);
+            setRivers([]);
           }
         } finally {
           if (!cancelled) setLoading(false);
@@ -380,5 +403,5 @@ export const useRiverRoute = (
     };
   }, [start, end]);
 
-  return { route, loading, error };
+  return { route, rivers, loading, error };
 };

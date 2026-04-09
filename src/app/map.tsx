@@ -1,18 +1,21 @@
 // screens/MapScreen.js (финальная версия)
 import { useRiverRoute } from '@/hooks/useRiverRoute';
+import { getSavedRouteById, SavedRoutePoint, upsertSavedRoute } from '@/storage/routes';
 import * as turf from '@turf/turf';
 import * as Location from 'expo-location';
 import { AppleMaps } from 'expo-maps';
-import { useLocalSearchParams } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Animated, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 
 export default function MapScreen() {
+    const router = useRouter();
     const params = useLocalSearchParams<{
         startLat?: string;
         startLon?: string;
         finishLat?: string;
         finishLon?: string;
+        savedRouteId?: string;
     }>();
     const startLat = Number(params.startLat);
     const startLon = Number(params.startLon);
@@ -32,23 +35,44 @@ export default function MapScreen() {
         [hasSelectedPoints, finishLat, finishLon]
     );
     const routeStart = useMemo(
-        () => (startPoint ? { lat: startPoint.latitude, lon: startPoint.longitude } : null),
-        [startPoint]
+        () =>
+            params.savedRouteId
+                ? null
+                : startPoint
+                  ? { lat: startPoint.latitude, lon: startPoint.longitude }
+                  : null,
+        [params.savedRouteId, startPoint]
     );
     const routeFinish = useMemo(
-        () => (finishPoint ? { lat: finishPoint.latitude, lon: finishPoint.longitude } : null),
-        [finishPoint]
+        () =>
+            params.savedRouteId
+                ? null
+                : finishPoint
+                  ? { lat: finishPoint.latitude, lon: finishPoint.longitude }
+                  : null,
+        [finishPoint, params.savedRouteId]
     );
     const [distanceCovered, setDistanceCovered] = useState(0);
     const [distanceRemaining, setDistanceRemaining] = useState(0);
+    const [savedRoutePoints, setSavedRoutePoints] = useState<SavedRoutePoint[]>([]);
+    const [savedRivers, setSavedRivers] = useState<string[]>([]);
+    const [savedStartPoint, setSavedStartPoint] = useState<{ latitude: number; longitude: number } | null>(
+        null
+    );
+    const [savedFinishPoint, setSavedFinishPoint] = useState<{ latitude: number; longitude: number } | null>(
+        null
+    );
+    const [savedRouteLoading, setSavedRouteLoading] = useState(false);
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
     // const routePoints = riverRoute.geometry.coordinates.map(([longitude, latitude]) => ({
     //     latitude,
     //     longitude,
     // }));
-    const { route: routePoints, loading, error } = useRiverRoute(routeStart, routeFinish);
+    const { route: routePoints, rivers, loading, error } = useRiverRoute(routeStart, routeFinish);
+    const effectiveRoutePoints = params.savedRouteId ? savedRoutePoints : routePoints;
     const routeCoordinates = useMemo(
-        () => routePoints.map((point) => [point.longitude, point.latitude]),
-        [routePoints]
+        () => effectiveRoutePoints.map((point) => [point.longitude, point.latitude]),
+        [effectiveRoutePoints]
     );
     const totalDistance = useMemo(
         () =>
@@ -57,7 +81,7 @@ export default function MapScreen() {
                 : 0,
         [routeCoordinates]
     );
-    const hasRoute = routePoints.length > 1;
+    const hasRoute = effectiveRoutePoints.length > 1;
     const progressRatio = useMemo(() => {
         if (!hasRoute || totalDistance <= 0) return 0;
         const rawValue = distanceCovered / totalDistance;
@@ -73,10 +97,13 @@ export default function MapScreen() {
             }),
         [progressAnim]
     );
+    const effectiveStartPoint = startPoint ?? savedStartPoint;
+    const effectiveFinishPoint = finishPoint ?? savedFinishPoint;
+    const hasAnySelectedPoints = hasSelectedPoints || !!params.savedRouteId;
     const cameraPosition = useMemo(() => {
         if (hasRoute) {
-            const latitudes = routePoints.map((point) => point.latitude);
-            const longitudes = routePoints.map((point) => point.longitude);
+            const latitudes = effectiveRoutePoints.map((point) => point.latitude);
+            const longitudes = effectiveRoutePoints.map((point) => point.longitude);
             const minLat = Math.min(...latitudes);
             const maxLat = Math.max(...latitudes);
             const minLon = Math.min(...longitudes);
@@ -102,10 +129,10 @@ export default function MapScreen() {
         }
 
         return {
-            coordinates: startPoint ?? { latitude: 48.67, longitude: 45.29 },
+            coordinates: effectiveStartPoint ?? { latitude: 48.67, longitude: 45.29 },
             zoom: 14,
         };
-    }, [hasRoute, routePoints, startPoint]);
+    }, [effectiveRoutePoints, effectiveStartPoint, hasRoute]);
 
     // Функция для расчёта пройденного и оставшегося пути
     const updateDistances = useCallback(
@@ -158,6 +185,53 @@ export default function MapScreen() {
     }, [loading, hasRoute]);
 
     useEffect(() => {
+        if (!params.savedRouteId) {
+            setSavedRoutePoints([]);
+            setSavedRivers([]);
+            setSavedStartPoint(null);
+            setSavedFinishPoint(null);
+            setSavedRouteLoading(false);
+            return;
+        }
+        let active = true;
+        setSavedRouteLoading(true);
+        (async () => {
+            const savedRoute = await getSavedRouteById(params.savedRouteId!);
+            if (!active) return;
+            setSavedRoutePoints(savedRoute?.route ?? []);
+            setSavedRivers(savedRoute?.rivers ?? []);
+            setSavedStartPoint(
+                savedRoute ? { latitude: savedRoute.start.lat, longitude: savedRoute.start.lon } : null
+            );
+            setSavedFinishPoint(
+                savedRoute ? { latitude: savedRoute.finish.lat, longitude: savedRoute.finish.lon } : null
+            );
+            setSavedRouteLoading(false);
+        })();
+        return () => {
+            active = false;
+        };
+    }, [params.savedRouteId]);
+
+    useEffect(() => {
+        if (!hasRoute || !routeStart || !routeFinish || params.savedRouteId) return;
+        upsertSavedRoute({
+            start: routeStart,
+            finish: routeFinish,
+            rivers,
+            route: effectiveRoutePoints,
+        })
+            .then(() => setSaveStatus('saved'))
+            .catch(() => setSaveStatus('error'));
+    }, [effectiveRoutePoints, hasRoute, params.savedRouteId, rivers, routeFinish, routeStart]);
+
+    useEffect(() => {
+        if (saveStatus !== 'saved') return;
+        const timer = setTimeout(() => setSaveStatus('idle'), 2500);
+        return () => clearTimeout(timer);
+    }, [saveStatus]);
+
+    useEffect(() => {
         Animated.timing(progressAnim, {
             toValue: progressRatio,
             duration: 450,
@@ -175,7 +249,7 @@ export default function MapScreen() {
                     hasRoute
                         ? [
                               {
-                                  coordinates: routePoints,
+                                  coordinates: effectiveRoutePoints,
                                   color: '#0066CC',
                                   width: 4,
                               },
@@ -183,21 +257,21 @@ export default function MapScreen() {
                         : []
                 }
                 markers={[
-                    ...(startPoint
+                    ...(effectiveStartPoint
                         ? [
                               {
                                   id: 'start',
-                                  coordinates: startPoint,
+                                  coordinates: effectiveStartPoint,
                                   title: 'Старт',
                                   tintColor: '#228B22',
                               },
                           ]
                         : []),
-                    ...(finishPoint
+                    ...(effectiveFinishPoint
                         ? [
                               {
                                   id: 'finish',
-                                  coordinates: finishPoint,
+                                  coordinates: effectiveFinishPoint,
                                   title: 'Финиш',
                                   tintColor: '#FF0000',
                               },
@@ -207,21 +281,48 @@ export default function MapScreen() {
             />
             {/* Информационная панель */}
             <View style={styles.infoPanel}>
-                {!hasSelectedPoints && (
+                {!hasAnySelectedPoints && (
                     <Text style={styles.statusText}>Выберите старт и финиш в Explore и нажмите "Начать"</Text>
                 )}
                 {loading && <Text style={styles.statusText}>Строим маршрут...</Text>}
+                {savedRouteLoading && <Text style={styles.statusText}>Загружаем сохраненный маршрут...</Text>}
                 {!loading && !!error && <Text style={styles.errorText}>Ошибка: {error}</Text>}
-                {!loading && hasSelectedPoints && !error && !hasRoute && (
+                {!loading && hasAnySelectedPoints && !error && !hasRoute && (
                     <Text style={styles.statusText}>Маршрут не найден</Text>
                 )}
-                <Text style={styles.infoText}>Пройдено: {distanceCovered.toFixed(2)} км</Text>
-                <Text style={styles.infoText}>Осталось: {distanceRemaining.toFixed(2)} км</Text>
-                <Text style={styles.infoText}>Всего: {totalDistance.toFixed(2)} км</Text>
-                <View style={styles.progressTrack}>
-                    <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
-                </View>
-                <Text style={styles.progressText}>{progressPercent}% маршрута пройдено</Text>
+                {!loading && !savedRouteLoading && !hasRoute && (
+                    <>
+                        <Text style={styles.statusText}>
+                            Чтобы начать маршрут, выберите старт и финиш во вкладке Explore.
+                        </Text>
+                        <Pressable
+                            style={({ pressed }) => [
+                                styles.exploreButton,
+                                pressed && styles.exploreButtonPressed,
+                            ]}
+                            onPress={() => router.navigate('/explore')}>
+                            <Text style={styles.exploreButtonText}>Перейти в Explore</Text>
+                        </Pressable>
+                    </>
+                )}
+                {!!(params.savedRouteId ? savedRivers : rivers).length && (
+                    <Text style={styles.riverText}>
+                        Река: {(params.savedRouteId ? savedRivers : rivers).join(', ')}
+                    </Text>
+                )}
+                {saveStatus === 'saved' && <Text style={styles.savedText}>Сохранено на устройстве</Text>}
+                {saveStatus === 'error' && <Text style={styles.errorText}>Не удалось сохранить маршрут</Text>}
+                {hasRoute && (
+                    <>
+                        <Text style={styles.infoText}>Пройдено: {distanceCovered.toFixed(2)} км</Text>
+                        <Text style={styles.infoText}>Осталось: {distanceRemaining.toFixed(2)} км</Text>
+                        <Text style={styles.infoText}>Всего: {totalDistance.toFixed(2)} км</Text>
+                        <View style={styles.progressTrack}>
+                            <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
+                        </View>
+                        <Text style={styles.progressText}>{progressPercent}% маршрута пройдено</Text>
+                    </>
+                )}
             </View>
         </View>
     );
@@ -278,5 +379,33 @@ const styles = StyleSheet.create({
         fontSize: 13,
         fontWeight: '600',
         marginTop: 6,
+    },
+    riverText: {
+        color: '#9ED0FF',
+        fontSize: 14,
+        fontWeight: '600',
+        marginBottom: 6,
+        textAlign: 'center',
+    },
+    savedText: {
+        color: '#8DFFBE',
+        fontSize: 13,
+        fontWeight: '700',
+        marginBottom: 6,
+    },
+    exploreButton: {
+        marginTop: 8,
+        backgroundColor: '#0A66FF',
+        borderRadius: 10,
+        paddingVertical: 10,
+        paddingHorizontal: 14,
+    },
+    exploreButtonPressed: {
+        opacity: 0.85,
+    },
+    exploreButtonText: {
+        color: '#FFFFFF',
+        fontSize: 14,
+        fontWeight: '700',
     },
 });
