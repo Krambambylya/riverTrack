@@ -31,16 +31,21 @@ export default function MapScreen() {
         () => (hasSelectedPoints ? { latitude: finishLat, longitude: finishLon } : null),
         [hasSelectedPoints, finishLat, finishLon]
     );
+    const routeStart = useMemo(
+        () => (startPoint ? { lat: startPoint.latitude, lon: startPoint.longitude } : null),
+        [startPoint]
+    );
+    const routeFinish = useMemo(
+        () => (finishPoint ? { lat: finishPoint.latitude, lon: finishPoint.longitude } : null),
+        [finishPoint]
+    );
     const [distanceCovered, setDistanceCovered] = useState(0);
     const [distanceRemaining, setDistanceRemaining] = useState(0);
     // const routePoints = riverRoute.geometry.coordinates.map(([longitude, latitude]) => ({
     //     latitude,
     //     longitude,
     // }));
-    const { route: routePoints, loading, error } = useRiverRoute(
-        startPoint ? { lat: startPoint.latitude, lon: startPoint.longitude } : null,
-        finishPoint ? { lat: finishPoint.latitude, lon: finishPoint.longitude } : null
-    );
+    const { route: routePoints, loading, error } = useRiverRoute(routeStart, routeFinish);
     const routeCoordinates = useMemo(
         () => routePoints.map((point) => [point.longitude, point.latitude]),
         [routePoints]
