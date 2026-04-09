@@ -68,7 +68,39 @@ export default function MapScreen() {
             }),
         [progressAnim]
     );
-    console.log(startPoint, finishPoint);
+    const cameraPosition = useMemo(() => {
+        if (hasRoute) {
+            const latitudes = routePoints.map((point) => point.latitude);
+            const longitudes = routePoints.map((point) => point.longitude);
+            const minLat = Math.min(...latitudes);
+            const maxLat = Math.max(...latitudes);
+            const minLon = Math.min(...longitudes);
+            const maxLon = Math.max(...longitudes);
+            const latSpan = Math.max(0.0001, maxLat - minLat);
+            const lonSpan = Math.max(0.0001, maxLon - minLon);
+            const maxSpan = Math.max(latSpan, lonSpan);
+
+            let zoom = 12;
+            if (maxSpan < 0.01) zoom = 14;
+            else if (maxSpan < 0.03) zoom = 13;
+            else if (maxSpan < 0.08) zoom = 12;
+            else if (maxSpan < 0.16) zoom = 11;
+            else zoom = 10;
+
+            return {
+                coordinates: {
+                    latitude: (minLat + maxLat) / 2,
+                    longitude: (minLon + maxLon) / 2,
+                },
+                zoom,
+            };
+        }
+
+        return {
+            coordinates: startPoint ?? { latitude: 48.67, longitude: 45.29 },
+            zoom: 14,
+        };
+    }, [hasRoute, routePoints, startPoint]);
 
     // Функция для расчёта пройденного и оставшегося пути
     const updateDistances = useCallback(
@@ -105,7 +137,7 @@ export default function MapScreen() {
             //     speed: 0,
             // };
             subscription = await Location.watchPositionAsync(
-                { accuracy: Location.Accuracy.Balanced, timeInterval: 2000, distanceInterval: 5 },
+                { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 10 },
                 (location) => updateDistances(location.coords)
                 // (location) => updateDistances(testCoords)
             );
@@ -132,10 +164,7 @@ export default function MapScreen() {
         <View style={styles.container}>
             <AppleMaps.View
                 style={styles.map}
-                cameraPosition={{
-                    coordinates: startPoint ?? { latitude: 48.67, longitude: 45.29 },
-                    zoom: 14,
-                }}
+                cameraPosition={cameraPosition}
                 properties={{ isMyLocationEnabled: true }}
                 polylines={
                     hasRoute

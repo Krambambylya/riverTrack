@@ -13,6 +13,10 @@ export default function ExploreScreen() {
   const [finishLon, setFinishLon] = useState('');
   const [selectionMode, setSelectionMode] = useState<'start' | 'finish'>('start');
   const [mapCenter, setMapCenter] = useState(FALLBACK_CENTER);
+  const startLatNum = Number(startLat);
+  const startLonNum = Number(startLon);
+  const finishLatNum = Number(finishLat);
+  const finishLonNum = Number(finishLon);
 
   useEffect(() => {
     let active = true;
@@ -42,16 +46,30 @@ export default function ExploreScreen() {
   }, []);
 
   const isValid = useMemo(() => {
-    const values = [startLat, startLon, finishLat, finishLon].map((value) => Number(value));
-    return values.every((value) => Number.isFinite(value));
-  }, [startLat, startLon, finishLat, finishLon]);
+    const hasFinite =
+      Number.isFinite(startLatNum) &&
+      Number.isFinite(startLonNum) &&
+      Number.isFinite(finishLatNum) &&
+      Number.isFinite(finishLonNum);
+    if (!hasFinite) return false;
+    const isInRange =
+      startLatNum >= -90 &&
+      startLatNum <= 90 &&
+      finishLatNum >= -90 &&
+      finishLatNum <= 90 &&
+      startLonNum >= -180 &&
+      startLonNum <= 180 &&
+      finishLonNum >= -180 &&
+      finishLonNum <= 180;
+    return isInRange;
+  }, [finishLatNum, finishLonNum, startLatNum, startLonNum]);
   const hasStartPoint = useMemo(
-    () => Number.isFinite(Number(startLat)) && Number.isFinite(Number(startLon)),
-    [startLat, startLon]
+    () => Number.isFinite(startLatNum) && Number.isFinite(startLonNum),
+    [startLatNum, startLonNum]
   );
   const hasFinishPoint = useMemo(
-    () => Number.isFinite(Number(finishLat)) && Number.isFinite(Number(finishLon)),
-    [finishLat, finishLon]
+    () => Number.isFinite(finishLatNum) && Number.isFinite(finishLonNum),
+    [finishLatNum, finishLonNum]
   );
 
   const startNavigation = () => {
@@ -77,10 +95,33 @@ export default function ExploreScreen() {
     if (selectionMode === 'start') {
       setStartLat(nextLat);
       setStartLon(nextLon);
+      setSelectionMode('finish');
       return;
     }
     setFinishLat(nextLat);
     setFinishLon(nextLon);
+  };
+  const useCurrentLocationAsStart = async () => {
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      const nextLat = String(Number(position.coords.latitude).toFixed(6));
+      const nextLon = String(Number(position.coords.longitude).toFixed(6));
+
+      setStartLat(nextLat);
+      setStartLon(nextLon);
+      setMapCenter({
+        latitude: Number(nextLat),
+        longitude: Number(nextLon),
+      });
+      setSelectionMode('finish');
+    } catch (error) {
+      // keep current values
+    }
   };
 
   return (
@@ -150,6 +191,14 @@ export default function ExploreScreen() {
 
       <View style={styles.card}>
         <Text style={styles.sectionTitle}>Старт</Text>
+        <Pressable
+          style={({ pressed }) => [
+            styles.secondaryButton,
+            pressed && styles.secondaryButtonPressed,
+          ]}
+          onPress={useCurrentLocationAsStart}>
+          <Text style={styles.secondaryButtonText}>Моё местоположение как Старт</Text>
+        </Pressable>
         <TextInput
           style={styles.input}
           value={startLat}
@@ -197,6 +246,11 @@ export default function ExploreScreen() {
         </Pressable>
 
         {!isValid && <Text style={styles.errorText}>Введите корректные координаты.</Text>}
+        {!isValid && (
+          <Text style={styles.errorTextHint}>
+            Широта: -90..90, долгота: -180..180.
+          </Text>
+        )}
       </View>
     </ScrollView>
   );
@@ -290,6 +344,23 @@ const styles = StyleSheet.create({
   buttonPressed: {
     opacity: 0.85,
   },
+  secondaryButton: {
+    marginBottom: 6,
+    backgroundColor: '#EAF3FF',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#BFD8FF',
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  secondaryButtonPressed: {
+    opacity: 0.8,
+  },
+  secondaryButtonText: {
+    color: '#0A4DBA',
+    fontSize: 14,
+    fontWeight: '700',
+  },
   buttonText: {
     color: '#FFFFFF',
     fontSize: 16,
@@ -299,5 +370,9 @@ const styles = StyleSheet.create({
     marginTop: 6,
     color: '#D13B3B',
     fontSize: 13,
+  },
+  errorTextHint: {
+    color: '#D13B3B',
+    fontSize: 12,
   },
 });
