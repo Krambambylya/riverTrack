@@ -131,13 +131,14 @@ export default function ExploreScreen() {
 
   return (
     <ScrollView
+      style={styles.screen}
       contentContainerStyle={[
         styles.container,
         { paddingTop: insets.top + 12, paddingBottom: insets.bottom + BottomTabInset + 16 },
       ]}>
-      <Text style={styles.title}>Построение водного маршрута</Text>
+      <Text style={styles.title}>Маршрут для байдарки</Text>
       <Text style={styles.subtitle}>
-        Выберите активную точку и тапните по карте, либо введите координаты вручную
+        Крупные кнопки и быстрый выбор: поставьте старт и финиш на карте.
       </Text>
 
       <View style={styles.card}>
@@ -149,7 +150,7 @@ export default function ExploreScreen() {
               selectionMode === 'start' && styles.modeButtonActiveStart,
             ]}
             onPress={() => setSelectionMode('start')}>
-            <Text style={styles.modeButtonText}>Ставлю Старт</Text>
+            <Text style={styles.modeButtonText}>Точка старта</Text>
           </Pressable>
           <Pressable
             style={[
@@ -157,7 +158,7 @@ export default function ExploreScreen() {
               selectionMode === 'finish' && styles.modeButtonActiveFinish,
             ]}
             onPress={() => setSelectionMode('finish')}>
-            <Text style={styles.modeButtonText}>Ставлю Финиш</Text>
+            <Text style={styles.modeButtonText}>Точка финиша</Text>
           </Pressable>
         </View>
         <AppleMaps.View
@@ -206,7 +207,7 @@ export default function ExploreScreen() {
             pressed && styles.secondaryButtonPressed,
           ]}
           onPress={useCurrentLocationAsStart}>
-          <Text style={styles.secondaryButtonText}>Моё местоположение как Старт</Text>
+          <Text style={styles.secondaryButtonText}>Моё местоположение = Старт</Text>
         </Pressable>
         <View style={[styles.coordinatesRow, isInlineCoordinates ? styles.inlineRow : styles.stackedRow]}>
           <TextInput
@@ -255,7 +256,7 @@ export default function ExploreScreen() {
           ]}
           onPress={startNavigation}
           disabled={!isValid}>
-          <Text style={styles.buttonText}>Начать</Text>
+          <Text style={styles.buttonText}>Старт маршрута</Text>
         </Pressable>
 
         {!isValid && <Text style={styles.errorText}>Введите корректные координаты.</Text>}
@@ -270,32 +271,39 @@ export default function ExploreScreen() {
 }
 
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#061A35',
+  },
   container: {
-    backgroundColor: '#F4F8FF',
+    backgroundColor: '#061A35',
     padding: 20,
-    gap: 12,
+    gap: 14,
   },
   title: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#0A2A66',
-    marginBottom: 8,
+    fontSize: 30,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    marginBottom: 4,
   },
   subtitle: {
-    fontSize: 15,
-    color: '#5B6785',
-    marginBottom: 20,
+    fontSize: 17,
+    lineHeight: 24,
+    color: '#B5CCEE',
+    marginBottom: 16,
   },
   card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    padding: 16,
-    gap: 10,
+    backgroundColor: '#0C2A52',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#2A4F84',
+    padding: 18,
+    gap: 12,
     shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
     shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
+    elevation: 4,
   },
   modeRow: {
     flexDirection: 'row',
@@ -303,45 +311,49 @@ const styles = StyleSheet.create({
   },
   modeButton: {
     flex: 1,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#D9E1F2',
-    paddingVertical: 10,
+    minHeight: 56,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#3A5E91',
+    paddingVertical: 12,
     alignItems: 'center',
-    backgroundColor: '#F8FAFF',
+    justifyContent: 'center',
+    backgroundColor: '#133763',
   },
   modeButtonActiveStart: {
-    backgroundColor: '#E6F6EA',
-    borderColor: '#228B22',
+    backgroundColor: '#194D34',
+    borderColor: '#4ED58D',
   },
   modeButtonActiveFinish: {
-    backgroundColor: '#FFEAEA',
-    borderColor: '#D93A3A',
+    backgroundColor: '#5A2B2B',
+    borderColor: '#FF7E7E',
   },
   modeButtonText: {
-    color: '#1D2A4A',
-    fontWeight: '600',
+    color: '#E6F1FF',
+    fontWeight: '700',
+    fontSize: 16,
   },
   map: {
-    height: 260,
+    height: 300,
     borderRadius: 12,
     overflow: 'hidden',
   },
   sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#1D2A4A',
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#E6F1FF',
     marginTop: 6,
   },
   input: {
-    borderWidth: 1,
-    borderColor: '#D9E1F2',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    fontSize: 15,
-    color: '#1B2233',
-    backgroundColor: '#FAFCFF',
+    minHeight: 56,
+    borderWidth: 1.5,
+    borderColor: '#4C6E9F',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    fontSize: 18,
+    color: '#FFFFFF',
+    backgroundColor: '#12345E',
   },
   coordinatesRow: {
     gap: 10,
@@ -357,46 +369,50 @@ const styles = StyleSheet.create({
   },
   button: {
     marginTop: 14,
-    backgroundColor: '#0A66FF',
-    paddingVertical: 13,
-    borderRadius: 12,
+    minHeight: 60,
+    backgroundColor: '#00AEEF',
+    borderRadius: 14,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   buttonDisabled: {
-    backgroundColor: '#96B7F5',
+    backgroundColor: '#466E8C',
   },
   buttonPressed: {
     opacity: 0.85,
   },
   secondaryButton: {
     marginBottom: 6,
-    backgroundColor: '#EAF3FF',
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#BFD8FF',
-    paddingVertical: 10,
+    minHeight: 56,
+    backgroundColor: '#1B4D7D',
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: '#5EA5EA',
+    paddingVertical: 12,
     alignItems: 'center',
+    justifyContent: 'center',
   },
   secondaryButtonPressed: {
     opacity: 0.8,
   },
   secondaryButtonText: {
-    color: '#0A4DBA',
-    fontSize: 14,
+    color: '#D8ECFF',
+    fontSize: 17,
     fontWeight: '700',
   },
   buttonText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    fontSize: 20,
+    fontWeight: '800',
   },
   errorText: {
     marginTop: 6,
-    color: '#D13B3B',
-    fontSize: 13,
+    color: '#FF9292',
+    fontSize: 14,
+    fontWeight: '700',
   },
   errorTextHint: {
-    color: '#D13B3B',
-    fontSize: 12,
+    color: '#FFADAD',
+    fontSize: 13,
   },
 });
