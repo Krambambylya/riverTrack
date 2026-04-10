@@ -18,6 +18,7 @@ export default function RouteConstructorWidget() {
   const [finishLon, setFinishLon] = useState('');
   const [selectionMode, setSelectionMode] = useState<'start' | 'finish'>('start');
   const [mapCenter, setMapCenter] = useState(FALLBACK_CENTER);
+  const [cameraRevision, setCameraRevision] = useState(0);
   const startLatNum = Number(startLat);
   const startLonNum = Number(startLon);
   const finishLatNum = Number(finishLat);
@@ -138,6 +139,8 @@ export default function RouteConstructorWidget() {
         latitude: Number(nextLat),
         longitude: Number(nextLon),
       });
+      // Force camera re-apply for AppleMaps after programmatic center change.
+      setCameraRevision((value) => value + 1);
       setSelectionMode('finish');
     } catch (error) {
       // keep current values
@@ -177,6 +180,7 @@ export default function RouteConstructorWidget() {
           </Pressable>
         </View>
         <AppleMaps.View
+          key={`route-constructor-map-${cameraRevision}`}
           style={styles.map}
           onMapClick={setSelectedPointFromMap}
           cameraPosition={{

@@ -73,6 +73,14 @@ export default function ActiveRouteWidget() {
     [routeCoordinates]
   );
   const hasRoute = effectiveRoutePoints.length > 1;
+  const hasCompleteRouteData = useMemo(
+    () =>
+      effectiveRoutePoints.length > 1 &&
+      effectiveRoutePoints.every(
+        (point) => Number.isFinite(point.latitude) && Number.isFinite(point.longitude)
+      ),
+    [effectiveRoutePoints]
+  );
   const progressRatio = useMemo(() => {
     if (!hasRoute || totalDistance <= 0) return 0;
     const rawValue = distanceCovered / totalDistance;
@@ -188,7 +196,16 @@ export default function ActiveRouteWidget() {
   }, [params.savedRouteId]);
 
   useEffect(() => {
-    if (!hasRoute || !routeStart || !routeFinish || params.savedRouteId) return;
+    if (
+      !hasCompleteRouteData ||
+      !routeStart ||
+      !routeFinish ||
+      params.savedRouteId ||
+      loading ||
+      !!error
+    ) {
+      return;
+    }
     upsertSavedRoute({
       start: routeStart,
       finish: routeFinish,
@@ -197,7 +214,7 @@ export default function ActiveRouteWidget() {
     })
       .then(() => setSaveStatus('saved'))
       .catch(() => setSaveStatus('error'));
-  }, [effectiveRoutePoints, hasRoute, params.savedRouteId, rivers, routeFinish, routeStart]);
+  }, [effectiveRoutePoints, error, hasCompleteRouteData, loading, params.savedRouteId, rivers, routeFinish, routeStart]);
 
   useEffect(() => {
     if (saveStatus !== 'saved') return;
