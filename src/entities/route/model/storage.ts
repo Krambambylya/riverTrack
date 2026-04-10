@@ -3,7 +3,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LatLon, RoutePoint, SavedRoute } from './types';
 
 const ROUTES_STORAGE_KEY = 'rivertrack.saved-routes.v1';
+const ACTIVE_ROUTE_ID_STORAGE_KEY = 'rivertrack.active-route-id.v1';
 let memoryFallbackRaw = '[]';
+let memoryActiveRouteId: string | null = null;
 
 const normalizeCoordinateKey = (value: number) => value.toFixed(6);
 
@@ -108,4 +110,26 @@ export const renameSavedRoute = async (id: string, title: string): Promise<Saved
   const nextRoutes = routes.map((route) => (route.id === id ? updated : route));
   await writeRoutes(nextRoutes);
   return updated;
+};
+
+export const setActiveRouteId = async (routeId: string | null): Promise<void> => {
+  memoryActiveRouteId = routeId;
+  try {
+    if (routeId) {
+      await AsyncStorage.setItem(ACTIVE_ROUTE_ID_STORAGE_KEY, routeId);
+    } else {
+      await AsyncStorage.removeItem(ACTIVE_ROUTE_ID_STORAGE_KEY);
+    }
+  } catch (error) {
+    // fallback to in-memory storage only
+  }
+};
+
+export const getActiveRouteId = async (): Promise<string | null> => {
+  try {
+    const value = await AsyncStorage.getItem(ACTIVE_ROUTE_ID_STORAGE_KEY);
+    return value ?? memoryActiveRouteId;
+  } catch (error) {
+    return memoryActiveRouteId;
+  }
 };

@@ -1,4 +1,4 @@
-import { getSavedRouteById, RoutePoint, upsertSavedRoute } from '@/entities/route';
+import { getActiveRouteId, getSavedRouteById, RoutePoint, setActiveRouteId, upsertSavedRoute } from '@/entities/route';
 import { useRiverRoute } from '@/features/route-tracking';
 import * as turf from '@turf/turf';
 import * as Location from 'expo-location';
@@ -16,6 +16,13 @@ export default function ActiveRouteWidget() {
     finishLon?: string;
     savedRouteId?: string;
   }>();
+  const normalizedParamSavedRouteId = useMemo(() => {
+    if (!params.savedRouteId) return undefined;
+    return Array.isArray(params.savedRouteId) ? params.savedRouteId[0] : params.savedRouteId;
+  }, [params.savedRouteId]);
+  const [resolvedSavedRouteId, setResolvedSavedRouteId] = useState<string | null>(
+    normalizedParamSavedRouteId ?? null
+  );
   const startLat = Number(params.startLat);
   const startLon = Number(params.startLon);
   const finishLat = Number(params.finishLat);
@@ -35,21 +42,21 @@ export default function ActiveRouteWidget() {
   );
   const routeStart = useMemo(
     () =>
-      params.savedRouteId
+      resolvedSavedRouteId
         ? null
         : startPoint
           ? { lat: startPoint.latitude, lon: startPoint.longitude }
           : null,
-    [params.savedRouteId, startPoint]
+    [resolvedSavedRouteId, startPoint]
   );
   const routeFinish = useMemo(
     () =>
-      params.savedRouteId
+      resolvedSavedRouteId
         ? null
         : finishPoint
           ? { lat: finishPoint.latitude, lon: finishPoint.longitude }
           : null,
-    [finishPoint, params.savedRouteId]
+    [finishPoint, resolvedSavedRouteId]
   );
   const [distanceCovered, setDistanceCovered] = useState(0);
   const [distanceRemaining, setDistanceRemaining] = useState(0);
@@ -60,7 +67,7 @@ export default function ActiveRouteWidget() {
   const [savedRouteLoading, setSavedRouteLoading] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
   const { route: routePoints, rivers, loading, error } = useRiverRoute(routeStart, routeFinish);
-  const effectiveRoutePoints = params.savedRouteId ? savedRoutePoints : routePoints;
+  const effectiveRoutePoints = resolvedSavedRouteId ? savedRoutePoints : routePoints;
   const routeCoordinates = useMemo(
     () => effectiveRoutePoints.map((point) => [point.longitude, point.latitude]),
     [effectiveRoutePoints]
@@ -87,6 +94,11 @@ export default function ActiveRouteWidget() {
     return Math.max(0, Math.min(1, rawValue));
   }, [distanceCovered, hasRoute, totalDistance]);
   const progressPercent = useMemo(() => Math.round(progressRatio * 100), [progressRatio]);
+  const formatDistanceKm = useCallback((value: number) => {
+    if (!Number.isFinite(value) || value <= 0) return '0.00';
+    if (value < 1) return value.toFixed(3);
+    return value.toFixed(2);
+  }, []);
   const progressAnim = React.useRef(new Animated.Value(0)).current;
   const progressWidth = useMemo(
     () =>
@@ -98,7 +110,13 @@ export default function ActiveRouteWidget() {
   );
   const effectiveStartPoint = startPoint ?? savedStartPoint;
   const effectiveFinishPoint = finishPoint ?? savedFinishPoint;
-  const hasAnySelectedPoints = hasSelectedPoints || !!params.savedRouteId;
+  const hasAnySelectedPoints = hasSelectedPoints || !!resolvedSavedRouteId;
+  const routeIdentity = useMemo(() => {
+    if (!hasRoute) return 'no-route';
+    const first = effectiveRoutePoints[0];
+    const last = effectiveRoutePoints[effectiveRoutePoints.length - 1];
+    return `${effectiveRoutePoints.length}:${first.latitude},${first.longitude}:${last.latitude},${last.longitude}`;
+  }, [effectiveRoutePoints, hasRoute]);
   const cameraPosition = useMemo(() => {
     if (hasRoute) {
       const latitudes = effectiveRoutePoints.map((point) => point.latitude);
@@ -139,7 +157,8 @@ export default function ActiveRouteWidget() {
       const currentPoint = turf.point([coords.longitude, coords.latitude]);
       const line = turf.lineString(routeCoordinates);
       const snapped = turf.nearestPointOnLine(line, currentPoint, { units: 'kilometers' });
-      const covered = snapped.properties.location;
+      const rawCovered = snapped.properties.location;
+      const covered = Math.max(0, Math.min(totalDistance, Number(rawCovered) || 0));
       setDistanceCovered(covered);
       const remaining = totalDistance - covered;
       setDistanceRemaining(remaining > 0 ? remaining : 0);
@@ -167,11 +186,40 @@ export default function ActiveRouteWidget() {
     if (loading || !hasRoute) {
       setDistanceCovered(0);
       setDistanceRemaining(0);
+      progressAnim.setValue(0);
     }
-  }, [loading, hasRoute]);
+  }, [loading, hasRoute, progressAnim]);
 
   useEffect(() => {
-    if (!params.savedRouteId) {
+    // При смене маршрута принудительно сбрасываем прогресс,
+    // чтобы исключить визуальный перенос значения с прошлого трека.
+    setDistanceCovered(0);
+    setDistanceRemaining(0);
+    progressAnim.setValue(0);
+  }, [progressAnim, routeIdentity]);
+
+  useEffect(() => {
+    let active = true;
+    if (normalizedParamSavedRouteId) {
+      setResolvedSavedRouteId(normalizedParamSavedRouteId);
+      return;
+    }
+    if (hasSelectedPoints) {
+      setResolvedSavedRouteId(null);
+      return;
+    }
+    (async () => {
+      const lastRouteId = await getActiveRouteId();
+      if (!active) return;
+      setResolvedSavedRouteId(lastRouteId);
+    })();
+    return () => {
+      active = false;
+    };
+  }, [hasSelectedPoints, normalizedParamSavedRouteId]);
+
+  useEffect(() => {
+    if (!resolvedSavedRouteId) {
       setSavedRoutePoints([]);
       setSavedRivers([]);
       setSavedStartPoint(null);
@@ -182,7 +230,7 @@ export default function ActiveRouteWidget() {
     let active = true;
     setSavedRouteLoading(true);
     (async () => {
-      const savedRoute = await getSavedRouteById(params.savedRouteId!);
+      const savedRoute = await getSavedRouteById(resolvedSavedRouteId);
       if (!active) return;
       setSavedRoutePoints(savedRoute?.route ?? []);
       setSavedRivers(savedRoute?.rivers ?? []);
@@ -193,14 +241,14 @@ export default function ActiveRouteWidget() {
     return () => {
       active = false;
     };
-  }, [params.savedRouteId]);
+  }, [resolvedSavedRouteId]);
 
   useEffect(() => {
     if (
       !hasCompleteRouteData ||
       !routeStart ||
       !routeFinish ||
-      params.savedRouteId ||
+      resolvedSavedRouteId ||
       loading ||
       !!error
     ) {
@@ -212,9 +260,17 @@ export default function ActiveRouteWidget() {
       rivers,
       route: effectiveRoutePoints,
     })
-      .then(() => setSaveStatus('saved'))
+      .then(async (savedRoute) => {
+        await setActiveRouteId(savedRoute.id);
+        setSaveStatus('saved');
+      })
       .catch(() => setSaveStatus('error'));
-  }, [effectiveRoutePoints, error, hasCompleteRouteData, loading, params.savedRouteId, rivers, routeFinish, routeStart]);
+  }, [effectiveRoutePoints, error, hasCompleteRouteData, loading, resolvedSavedRouteId, rivers, routeFinish, routeStart]);
+
+  useEffect(() => {
+    if (!resolvedSavedRouteId) return;
+    setActiveRouteId(resolvedSavedRouteId).catch(() => undefined);
+  }, [resolvedSavedRouteId]);
 
   useEffect(() => {
     if (saveStatus !== 'saved') return;
@@ -295,18 +351,18 @@ export default function ActiveRouteWidget() {
             </Pressable>
           </>
         )}
-        {!!(params.savedRouteId ? savedRivers : rivers).length && (
+        {!!(resolvedSavedRouteId ? savedRivers : rivers).length && (
           <Text style={styles.riverText}>
-            Река: {(params.savedRouteId ? savedRivers : rivers).join(', ')}
+            Река: {(resolvedSavedRouteId ? savedRivers : rivers).join(', ')}
           </Text>
         )}
         {saveStatus === 'saved' && <Text style={styles.savedText}>Сохранено на устройстве</Text>}
         {saveStatus === 'error' && <Text style={styles.errorText}>Не удалось сохранить маршрут</Text>}
         {hasRoute && (
           <>
-            <Text style={styles.infoText}>Пройдено: {distanceCovered.toFixed(2)} км</Text>
-            <Text style={styles.infoText}>Осталось: {distanceRemaining.toFixed(2)} км</Text>
-            <Text style={styles.infoText}>Всего: {totalDistance.toFixed(2)} км</Text>
+            <Text style={styles.infoText}>Пройдено: {formatDistanceKm(distanceCovered)} км</Text>
+            <Text style={styles.infoText}>Осталось: {formatDistanceKm(distanceRemaining)} км</Text>
+            <Text style={styles.infoText}>Всего: {formatDistanceKm(totalDistance)} км</Text>
             <View style={styles.progressTrack}>
               <Animated.View style={[styles.progressFill, { width: progressWidth }]} />
             </View>

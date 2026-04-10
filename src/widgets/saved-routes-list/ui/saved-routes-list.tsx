@@ -1,4 +1,4 @@
-import { SavedRoute, deleteSavedRoute, getSavedRoutes, renameSavedRoute } from '@/entities/route';
+import { SavedRoute, getSavedRoutes } from '@/entities/route';
 import { BottomTabInset } from '@/constants/theme';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
@@ -10,59 +10,39 @@ export default function SavedRoutesListWidget() {
   const insets = useSafeAreaInsets();
   const [routes, setRoutes] = useState<SavedRoute[]>([]);
   const [loading, setLoading] = useState(true);
-  const [editingRouteId, setEditingRouteId] = useState<string | null>(null);
-  const [editingTitle, setEditingTitle] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedRiver, setSelectedRiver] = useState<string>('all');
   const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
 
-  const loadRoutes = useCallback(async () => {
-    setLoading(true);
-    const savedRoutes = await getSavedRoutes();
-    const sorted = [...savedRoutes].sort(
-      (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
-    );
-    setRoutes(sorted);
-    setLoading(false);
+  const loadRoutes = useCallback(async (options?: { showLoading?: boolean }) => {
+    const showLoading = options?.showLoading ?? false;
+    if (showLoading) setLoading(true);
+    try {
+      const savedRoutes = await getSavedRoutes();
+      const sorted = [...savedRoutes].sort(
+        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+      );
+      setRoutes(sorted);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useFocusEffect(
     useCallback(() => {
-      loadRoutes();
+      // Первый заход: loading уже true; при возврате с модалки не трогаем loading —
+      // иначе весь экран моргает «Загрузка...».
+      loadRoutes({ showLoading: false });
     }, [loadRoutes])
   );
 
-  const startRename = (route: SavedRoute) => {
-    setEditingRouteId(route.id);
-    setEditingTitle(route.title);
-  };
-
-  const cancelRename = () => {
-    setEditingRouteId(null);
-    setEditingTitle('');
-  };
-
-  const confirmRename = async () => {
-    if (!editingRouteId) return;
-    await renameSavedRoute(editingRouteId, editingTitle);
-    cancelRename();
-    await loadRoutes();
-  };
-
-  const removeRoute = async (id: string) => {
-    await deleteSavedRoute(id);
-    if (editingRouteId === id) cancelRename();
-    await loadRoutes();
-  };
-  const formatDateTime = (iso: string) => {
+  const formatDate = (iso: string) => {
     const date = new Date(iso);
     if (Number.isNaN(date.getTime())) return 'Неизвестно';
     return date.toLocaleString('ru-RU', {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
     });
   };
   const riverOptions = useMemo(() => {
@@ -86,7 +66,6 @@ export default function SavedRoutesListWidget() {
     });
     return base;
   }, [routes, searchQuery, selectedRiver, sortOrder]);
-
   return (
     <ScrollView
       style={styles.screen}
@@ -168,64 +147,16 @@ export default function SavedRoutesListWidget() {
 
       {!loading &&
         filteredRoutes.map((route) => (
-          <View key={route.id} style={styles.routeCard}>
-            {editingRouteId === route.id ? (
-              <TextInput
-                style={styles.renameInput}
-                value={editingTitle}
-                onChangeText={setEditingTitle}
-                placeholder="Название маршрута"
-                placeholderTextColor="#8A8A8A"
-              />
-            ) : (
+          <Pressable
+            key={route.id}
+            style={({ pressed }) => [styles.routeCard, pressed && styles.continueButtonPressed]}
+            onPress={() => router.push(`/route-modal?routeId=${encodeURIComponent(route.id)}`)}>
+            <View style={styles.routeHeaderRow}>
               <Text style={styles.routeTitle}>{route.title}</Text>
-            )}
-            <Text style={styles.routeMeta}>
-              Старт: {route.start.lat.toFixed(5)}, {route.start.lon.toFixed(5)}
-            </Text>
-            <Text style={styles.routeMeta}>
-              Финиш: {route.finish.lat.toFixed(5)}, {route.finish.lon.toFixed(5)}
-            </Text>
-            <Text style={styles.routeMeta}>Реки: {route.rivers.join(', ') || 'Не определены'}</Text>
-            <Text style={styles.routeMeta}>Создан: {formatDateTime(route.createdAt)}</Text>
-            <View style={styles.actionRow}>
-              <Pressable
-                style={({ pressed }) => [styles.continueButton, pressed && styles.continueButtonPressed]}
-                onPress={() =>
-                  router.navigate({
-                    pathname: '/map',
-                    params: { savedRouteId: route.id },
-                  })
-                }>
-                <Text style={styles.continueButtonText}>Продолжить</Text>
-              </Pressable>
-              {editingRouteId === route.id ? (
-                <>
-                  <Pressable
-                    style={({ pressed }) => [styles.renameSaveButton, pressed && styles.continueButtonPressed]}
-                    onPress={confirmRename}>
-                    <Text style={styles.renameSaveText}>Сохранить</Text>
-                  </Pressable>
-                  <Pressable
-                    style={({ pressed }) => [styles.cancelButton, pressed && styles.continueButtonPressed]}
-                    onPress={cancelRename}>
-                    <Text style={styles.cancelButtonText}>Отмена</Text>
-                  </Pressable>
-                </>
-              ) : (
-                <Pressable
-                  style={({ pressed }) => [styles.renameButton, pressed && styles.continueButtonPressed]}
-                  onPress={() => startRename(route)}>
-                  <Text style={styles.renameButtonText}>Переименовать</Text>
-                </Pressable>
-              )}
-              <Pressable
-                style={({ pressed }) => [styles.deleteButton, pressed && styles.continueButtonPressed]}
-                onPress={() => removeRoute(route.id)}>
-                <Text style={styles.deleteButtonText}>Удалить</Text>
-              </Pressable>
+              <Text style={styles.routeDate}>{formatDate(route.createdAt)}</Text>
             </View>
-          </View>
+            <Text style={styles.routeMeta}>Реки: {route.rivers.join(', ') || 'Не определены'}</Text>
+          </Pressable>
         ))}
     </ScrollView>
   );
@@ -239,7 +170,7 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: '#061A35',
     paddingHorizontal: 20,
-    gap: 14,
+    gap: 10,
   },
   title: {
     fontSize: 30,
@@ -260,33 +191,33 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     borderWidth: 1,
     borderColor: '#2A4F84',
-    padding: 14,
-    gap: 10,
+    padding: 10,
+    gap: 8,
   },
   filterInput: {
-    minHeight: 52,
+    minHeight: 44,
     borderWidth: 1.5,
     borderColor: '#4F79B0',
-    borderRadius: 12,
-    paddingHorizontal: 14,
+    borderRadius: 10,
+    paddingHorizontal: 12,
     color: '#FFFFFF',
-    fontSize: 16,
+    fontSize: 15,
     backgroundColor: '#12345E',
   },
   filterRow: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 6,
   },
   filterChip: {
     flex: 1,
-    minHeight: 46,
-    borderRadius: 10,
+    minHeight: 40,
+    borderRadius: 9,
     backgroundColor: '#12345E',
     borderWidth: 1,
     borderColor: '#3B5F92',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
   },
   filterChipActive: {
     backgroundColor: '#38B6FF',
@@ -295,19 +226,19 @@ const styles = StyleSheet.create({
   filterChipText: {
     color: '#CDE3FF',
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 13,
   },
   filterChipTextActive: {
     color: '#FFFFFF',
   },
   riverChipsRow: {
-    gap: 8,
-    paddingRight: 8,
+    gap: 6,
+    paddingRight: 6,
   },
   riverChip: {
-    minHeight: 42,
-    borderRadius: 10,
-    paddingHorizontal: 12,
+    minHeight: 36,
+    borderRadius: 9,
+    paddingHorizontal: 10,
     justifyContent: 'center',
     borderWidth: 1,
     borderColor: '#3B5F92',
@@ -320,7 +251,7 @@ const styles = StyleSheet.create({
   riverChipText: {
     color: '#CDE3FF',
     fontWeight: '700',
-    fontSize: 14,
+    fontSize: 13,
   },
   riverChipTextActive: {
     color: '#E6FFE8',
@@ -375,101 +306,28 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
+  routeHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 12,
+  },
   routeTitle: {
     color: '#E6F1FF',
     fontSize: 22,
     fontWeight: '800',
     marginBottom: 4,
   },
+  routeDate: {
+    color: '#95B9E8',
+    fontSize: 14,
+    fontWeight: '700',
+  },
   routeMeta: {
     color: '#C7DAF5',
     fontSize: 16,
   },
-  continueButton: {
-    flex: 1,
-    minHeight: 56,
-    backgroundColor: '#38B6FF',
-    borderRadius: 12,
-    paddingVertical: 11,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   continueButtonPressed: {
     opacity: 0.85,
-  },
-  continueButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  actionRow: {
-    marginTop: 10,
-    flexDirection: 'row',
-    gap: 8,
-    alignItems: 'center',
-  },
-  renameButton: {
-    minHeight: 56,
-    backgroundColor: '#1B4D7D',
-    borderRadius: 12,
-    paddingVertical: 11,
-    paddingHorizontal: 12,
-    justifyContent: 'center',
-  },
-  renameButtonText: {
-    color: '#D8ECFF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  renameSaveButton: {
-    minHeight: 56,
-    backgroundColor: '#1D4F85',
-    borderRadius: 12,
-    paddingVertical: 11,
-    paddingHorizontal: 12,
-    justifyContent: 'center',
-  },
-  renameSaveText: {
-    color: '#E3F4FF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  cancelButton: {
-    minHeight: 56,
-    backgroundColor: '#3F5A7B',
-    borderRadius: 12,
-    paddingVertical: 11,
-    paddingHorizontal: 12,
-    justifyContent: 'center',
-  },
-  cancelButtonText: {
-    color: '#E5EEFA',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  deleteButton: {
-    minHeight: 56,
-    backgroundColor: '#7D2B2B',
-    borderRadius: 12,
-    paddingVertical: 11,
-    paddingHorizontal: 12,
-    justifyContent: 'center',
-  },
-  deleteButtonText: {
-    color: '#FFDADA',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  renameInput: {
-    minHeight: 56,
-    borderWidth: 1.5,
-    borderColor: '#5EA5EA',
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
-    backgroundColor: '#12345E',
   },
 });
