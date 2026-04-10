@@ -1,10 +1,10 @@
-import { router } from 'expo-router';
-import { AppleMaps } from 'expo-maps';
+import { BottomTabInset } from '@/constants/theme';
 import * as Location from 'expo-location';
+import { AppleMaps } from 'expo-maps';
+import { router } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { BottomTabInset } from '@/constants/theme';
 
 const FALLBACK_CENTER = { latitude: 48.67, longitude: 45.29 };
 
@@ -51,6 +51,12 @@ export default function ExploreScreen() {
   }, []);
 
   const isValid = useMemo(() => {
+    const hasValues =
+      startLat.trim().length > 0 &&
+      startLon.trim().length > 0 &&
+      finishLat.trim().length > 0 &&
+      finishLon.trim().length > 0;
+    if (!hasValues) return false;
     const hasFinite =
       Number.isFinite(startLatNum) &&
       Number.isFinite(startLonNum) &&
@@ -67,18 +73,27 @@ export default function ExploreScreen() {
       finishLonNum >= -180 &&
       finishLonNum <= 180;
     return isInRange;
-  }, [finishLatNum, finishLonNum, startLatNum, startLonNum]);
+  }, [finishLat, finishLatNum, finishLon, finishLonNum, startLat, startLatNum, startLon, startLonNum]);
   const hasStartPoint = useMemo(
-    () => Number.isFinite(startLatNum) && Number.isFinite(startLonNum),
-    [startLatNum, startLonNum]
+    () =>
+      startLat.trim().length > 0 &&
+      startLon.trim().length > 0 &&
+      Number.isFinite(startLatNum) &&
+      Number.isFinite(startLonNum),
+    [startLat, startLatNum, startLon, startLonNum]
   );
   const hasFinishPoint = useMemo(
-    () => Number.isFinite(finishLatNum) && Number.isFinite(finishLonNum),
-    [finishLatNum, finishLonNum]
+    () =>
+      finishLat.trim().length > 0 &&
+      finishLon.trim().length > 0 &&
+      Number.isFinite(finishLatNum) &&
+      Number.isFinite(finishLonNum),
+    [finishLat, finishLatNum, finishLon, finishLonNum]
   );
+  const canStartRoute = isValid && hasStartPoint && hasFinishPoint;
 
   const startNavigation = () => {
-    if (!isValid) return;
+    if (!canStartRoute) return;
     router.navigate({
       pathname: '/map',
       params: {
@@ -136,7 +151,7 @@ export default function ExploreScreen() {
         styles.container,
         { paddingTop: insets.top + 12, paddingBottom: insets.bottom + BottomTabInset + 16 },
       ]}>
-      <Text style={styles.title}>Маршрут для байдарки</Text>
+      <Text style={styles.title}>Создание водного маршрута</Text>
       <Text style={styles.subtitle}>
         Крупные кнопки и быстрый выбор: поставьте старт и финиш на карте.
       </Text>
@@ -171,29 +186,29 @@ export default function ExploreScreen() {
           markers={[
             ...(hasStartPoint
               ? [
-                  {
-                    id: 'start',
-                    coordinates: {
-                      latitude: Number(startLat),
-                      longitude: Number(startLon),
-                    },
-                    title: 'Старт',
-                    tintColor: '#228B22',
+                {
+                  id: 'start',
+                  coordinates: {
+                    latitude: Number(startLat),
+                    longitude: Number(startLon),
                   },
-                ]
+                  title: 'Старт',
+                  tintColor: '#38B6FF',
+                },
+              ]
               : []),
             ...(hasFinishPoint
               ? [
-                  {
-                    id: 'finish',
-                    coordinates: {
-                      latitude: Number(finishLat),
-                      longitude: Number(finishLon),
-                    },
-                    title: 'Финиш',
-                    tintColor: '#D93A3A',
+                {
+                  id: 'finish',
+                  coordinates: {
+                    latitude: Number(finishLat),
+                    longitude: Number(finishLon),
                   },
-                ]
+                  title: 'Финиш',
+                  tintColor: '#D93A3A',
+                },
+              ]
               : []),
           ]}
         />
@@ -251,16 +266,16 @@ export default function ExploreScreen() {
         <Pressable
           style={({ pressed }) => [
             styles.button,
-            !isValid && styles.buttonDisabled,
-            pressed && isValid && styles.buttonPressed,
+            !canStartRoute && styles.buttonDisabled,
+            pressed && canStartRoute && styles.buttonPressed,
           ]}
           onPress={startNavigation}
-          disabled={!isValid}>
+          disabled={!canStartRoute}>
           <Text style={styles.buttonText}>Старт маршрута</Text>
         </Pressable>
 
-        {!isValid && <Text style={styles.errorText}>Введите корректные координаты.</Text>}
-        {!isValid && (
+        {!canStartRoute && <Text style={styles.errorText}>Сначала задайте старт и финиш.</Text>}
+        {!canStartRoute && (
           <Text style={styles.errorTextHint}>
             Широта: -90..90, долгота: -180..180.
           </Text>
@@ -277,7 +292,7 @@ const styles = StyleSheet.create({
   },
   container: {
     backgroundColor: '#061A35',
-    padding: 20,
+    paddingHorizontal: 20,
     gap: 14,
   },
   title: {
@@ -321,8 +336,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#133763',
   },
   modeButtonActiveStart: {
-    backgroundColor: '#194D34',
-    borderColor: '#4ED58D',
+    backgroundColor: '#1D4F85',
+    borderColor: '#6CC4FF',
   },
   modeButtonActiveFinish: {
     backgroundColor: '#5A2B2B',
@@ -370,7 +385,7 @@ const styles = StyleSheet.create({
   button: {
     marginTop: 14,
     minHeight: 60,
-    backgroundColor: '#00AEEF',
+    backgroundColor: '#38B6FF',
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
@@ -387,7 +402,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#1B4D7D',
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: '#5EA5EA',
+    borderColor: '#82CCFF',
     paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',

@@ -290,8 +290,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   filterChipActive: {
-    backgroundColor: '#00AEEF',
-    borderColor: '#00AEEF',
+    backgroundColor: '#38B6FF',
+    borderColor: '#38B6FF',
   },
   filterChipText: {
     color: '#CDE3FF',
@@ -315,8 +315,8 @@ const styles = StyleSheet.create({
     backgroundColor: '#12345E',
   },
   riverChipActive: {
-    backgroundColor: '#1D6843',
-    borderColor: '#2D8A5A',
+    backgroundColor: '#1D4F85',
+    borderColor: '#6CC4FF',
   },
   riverChipText: {
     color: '#CDE3FF',
@@ -352,7 +352,7 @@ const styles = StyleSheet.create({
   emptyActionButton: {
     marginTop: 14,
     minHeight: 58,
-    backgroundColor: '#00AEEF',
+    backgroundColor: '#38B6FF',
     borderRadius: 14,
     paddingVertical: 12,
     alignItems: 'center',
@@ -389,7 +389,7 @@ const styles = StyleSheet.create({
   continueButton: {
     flex: 1,
     minHeight: 56,
-    backgroundColor: '#00AEEF',
+    backgroundColor: '#38B6FF',
     borderRadius: 12,
     paddingVertical: 11,
     alignItems: 'center',
@@ -424,14 +424,14 @@ const styles = StyleSheet.create({
   },
   renameSaveButton: {
     minHeight: 56,
-    backgroundColor: '#1D6843',
+    backgroundColor: '#1D4F85',
     borderRadius: 12,
     paddingVertical: 11,
     paddingHorizontal: 12,
     justifyContent: 'center',
   },
   renameSaveText: {
-    color: '#D7FFE9',
+    color: '#E3F4FF',
     fontSize: 15,
     fontWeight: '700',
   },

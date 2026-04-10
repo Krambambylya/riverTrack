@@ -263,7 +263,7 @@ export default function MapScreen() {
                                   id: 'start',
                                   coordinates: effectiveStartPoint,
                                   title: 'Старт',
-                                  tintColor: '#228B22',
+                                  tintColor: '#38B6FF',
                               },
                           ]
                         : []),
@@ -374,7 +374,7 @@ const styles = StyleSheet.create({
     },
     progressFill: {
         height: '100%',
-        backgroundColor: '#00AEEF',
+        backgroundColor: '#38B6FF',
         borderRadius: 999,
     },
     progressText: {
@@ -391,7 +391,7 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
     savedText: {
-        color: '#A6FFCB',
+        color: '#BFE6FF',
         fontSize: 14,
         fontWeight: '700',
         marginBottom: 8,
@@ -400,7 +400,7 @@ const styles = StyleSheet.create({
         marginTop: 8,
         minHeight: 58,
         minWidth: 220,
-        backgroundColor: '#00AEEF',
+        backgroundColor: '#38B6FF',
         borderRadius: 14,
         paddingVertical: 10,
         paddingHorizontal: 16,
