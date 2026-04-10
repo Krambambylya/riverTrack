@@ -1,27 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export type SavedRoutePoint = {
-  latitude: number;
-  longitude: number;
-};
-
-export type SavedRoute = {
-  id: string;
-  title: string;
-  start: { lat: number; lon: number };
-  finish: { lat: number; lon: number };
-  rivers: string[];
-  route: SavedRoutePoint[];
-  createdAt: string;
-  updatedAt: string;
-};
+import { LatLon, RoutePoint, SavedRoute } from './types';
 
 const ROUTES_STORAGE_KEY = 'rivertrack.saved-routes.v1';
 let memoryFallbackRaw = '[]';
 
 const normalizeCoordinateKey = (value: number) => value.toFixed(6);
 
-const makeRouteKey = (start: { lat: number; lon: number }, finish: { lat: number; lon: number }) =>
+const makeRouteKey = (start: LatLon, finish: LatLon) =>
   `${normalizeCoordinateKey(start.lat)},${normalizeCoordinateKey(start.lon)}|${normalizeCoordinateKey(
     finish.lat
   )},${normalizeCoordinateKey(finish.lon)}`;
@@ -59,10 +45,10 @@ const writeRoutes = async (routes: SavedRoute[]) => {
 };
 
 export const upsertSavedRoute = async (input: {
-  start: { lat: number; lon: number };
-  finish: { lat: number; lon: number };
+  start: LatLon;
+  finish: LatLon;
   rivers: string[];
-  route: SavedRoutePoint[];
+  route: RoutePoint[];
 }): Promise<SavedRoute> => {
   const routes = await getSavedRoutes();
   const now = new Date().toISOString();
