@@ -1,32 +1,54 @@
-import { getActiveRouteId, getSavedRouteById, RoutePoint, setActiveRouteId, upsertSavedRoute } from '@/entities/route';
+import {
+  getActiveRouteId,
+  getPendingRouteSelection,
+  getSavedRouteById,
+  RoutePoint,
+  setActiveRouteId,
+  setPendingRouteSelection,
+  upsertSavedRoute,
+} from '@/entities/route';
 import { useRiverRoute } from '@/features/route-tracking';
+import { MAPLIBRE_OSM_STYLE } from '@/shared/config/maplibre-osm-style';
 import * as turf from '@turf/turf';
 import * as Location from 'expo-location';
 import { AppleMaps } from 'expo-maps';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 export default function ActiveRouteWidget() {
+  const MapLibre = Platform.OS === 'android' ? require('@maplibre/maplibre-react-native') : null;
   const router = useRouter();
   const params = useLocalSearchParams<{
-    startLat?: string;
-    startLon?: string;
-    finishLat?: string;
-    finishLon?: string;
+    startLat?: string | string[];
+    startLon?: string | string[];
+    finishLat?: string | string[];
+    finishLon?: string | string[];
     savedRouteId?: string;
   }>();
+  const getParamValue = useCallback((value?: string | string[]) => {
+    if (!value) return undefined;
+    return Array.isArray(value) ? value[0] : value;
+  }, []);
   const normalizedParamSavedRouteId = useMemo(() => {
     if (!params.savedRouteId) return undefined;
     return Array.isArray(params.savedRouteId) ? params.savedRouteId[0] : params.savedRouteId;
   }, [params.savedRouteId]);
+  const normalizedStartLat = useMemo(() => getParamValue(params.startLat), [getParamValue, params.startLat]);
+  const normalizedStartLon = useMemo(() => getParamValue(params.startLon), [getParamValue, params.startLon]);
+  const normalizedFinishLat = useMemo(() => getParamValue(params.finishLat), [getParamValue, params.finishLat]);
+  const normalizedFinishLon = useMemo(() => getParamValue(params.finishLon), [getParamValue, params.finishLon]);
+  const [pendingSelection, setPendingSelection] = useState<{
+    start: { lat: number; lon: number };
+    finish: { lat: number; lon: number };
+  } | null>(null);
   const [resolvedSavedRouteId, setResolvedSavedRouteId] = useState<string | null>(
     normalizedParamSavedRouteId ?? null
   );
-  const startLat = Number(params.startLat);
-  const startLon = Number(params.startLon);
-  const finishLat = Number(params.finishLat);
-  const finishLon = Number(params.finishLon);
+  const startLat = Number(normalizedStartLat ?? pendingSelection?.start.lat);
+  const startLon = Number(normalizedStartLon ?? pendingSelection?.start.lon);
+  const finishLat = Number(normalizedFinishLat ?? pendingSelection?.finish.lat);
+  const finishLon = Number(normalizedFinishLon ?? pendingSelection?.finish.lon);
   const hasSelectedPoints =
     Number.isFinite(startLat) &&
     Number.isFinite(startLon) &&
@@ -60,6 +82,7 @@ export default function ActiveRouteWidget() {
   );
   const [distanceCovered, setDistanceCovered] = useState(0);
   const [distanceRemaining, setDistanceRemaining] = useState(0);
+  const [userLocationPoint, setUserLocationPoint] = useState<{ latitude: number; longitude: number } | null>(null);
   const [savedRoutePoints, setSavedRoutePoints] = useState<RoutePoint[]>([]);
   const [savedRivers, setSavedRivers] = useState<string[]>([]);
   const [savedStartPoint, setSavedStartPoint] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -150,6 +173,62 @@ export default function ActiveRouteWidget() {
       zoom: 14,
     };
   }, [effectiveRoutePoints, effectiveStartPoint, hasRoute]);
+  const cameraCenterCoordinate = useMemo(
+    () => [cameraPosition.coordinates.longitude, cameraPosition.coordinates.latitude],
+    [cameraPosition]
+  );
+  const androidRouteLine = useMemo(
+    () => ({
+      type: 'Feature' as const,
+      properties: {},
+      geometry: {
+        type: 'LineString' as const,
+        coordinates: effectiveRoutePoints.map((point) => [point.longitude, point.latitude]),
+      },
+    }),
+    [effectiveRoutePoints]
+  );
+  const androidRouteMarkers = useMemo(() => {
+    const features: {
+      type: 'Feature';
+      properties: { role: 'start' | 'finish' | 'user' };
+      geometry: { type: 'Point'; coordinates: number[] };
+    }[] = [];
+    if (effectiveStartPoint) {
+      features.push({
+        type: 'Feature',
+        properties: { role: 'start' },
+        geometry: {
+          type: 'Point',
+          coordinates: [effectiveStartPoint.longitude, effectiveStartPoint.latitude],
+        },
+      });
+    }
+    if (effectiveFinishPoint) {
+      features.push({
+        type: 'Feature',
+        properties: { role: 'finish' },
+        geometry: {
+          type: 'Point',
+          coordinates: [effectiveFinishPoint.longitude, effectiveFinishPoint.latitude],
+        },
+      });
+    }
+    if (userLocationPoint) {
+      features.push({
+        type: 'Feature',
+        properties: { role: 'user' },
+        geometry: {
+          type: 'Point',
+          coordinates: [userLocationPoint.longitude, userLocationPoint.latitude],
+        },
+      });
+    }
+    return {
+      type: 'FeatureCollection' as const,
+      features,
+    };
+  }, [effectiveFinishPoint, effectiveStartPoint, userLocationPoint]);
 
   const updateDistances = useCallback(
     (coords: Location.LocationObjectCoords) => {
@@ -162,6 +241,7 @@ export default function ActiveRouteWidget() {
       setDistanceCovered(covered);
       const remaining = totalDistance - covered;
       setDistanceRemaining(remaining > 0 ? remaining : 0);
+      setUserLocationPoint({ latitude: coords.latitude, longitude: coords.longitude });
     },
     [routeCoordinates, totalDistance]
   );
@@ -172,6 +252,10 @@ export default function ActiveRouteWidget() {
       if (loading || routeCoordinates.length < 2) return;
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
+      const initialLocation = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      updateDistances(initialLocation.coords);
       subscription = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 10 },
         (location) => updateDistances(location.coords)
@@ -197,6 +281,36 @@ export default function ActiveRouteWidget() {
     setDistanceRemaining(0);
     progressAnim.setValue(0);
   }, [progressAnim, routeIdentity]);
+
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      const hasParams =
+        normalizedStartLat !== undefined &&
+        normalizedStartLon !== undefined &&
+        normalizedFinishLat !== undefined &&
+        normalizedFinishLon !== undefined;
+      if (hasParams || normalizedParamSavedRouteId) {
+        setPendingSelection(null);
+        return;
+      }
+      const pending = await getPendingRouteSelection();
+      if (!active) return;
+      setPendingSelection(pending);
+      if (pending) {
+        setPendingRouteSelection(null).catch(() => undefined);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [
+    normalizedFinishLat,
+    normalizedFinishLon,
+    normalizedParamSavedRouteId,
+    normalizedStartLat,
+    normalizedStartLon,
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -288,44 +402,88 @@ export default function ActiveRouteWidget() {
 
   return (
     <View style={styles.container}>
-      <AppleMaps.View
-        style={styles.map}
-        cameraPosition={cameraPosition}
-        properties={{ isMyLocationEnabled: true }}
-        polylines={
-          hasRoute
-            ? [
-              {
-                coordinates: effectiveRoutePoints,
-                color: '#0066CC',
-                width: 4,
-              },
-            ]
-            : []
-        }
-        markers={[
-          ...(effectiveStartPoint
-            ? [
-              {
-                id: 'start',
-                coordinates: effectiveStartPoint,
-                title: 'Старт',
-                tintColor: '#38B6FF',
-              },
-            ]
-            : []),
-          ...(effectiveFinishPoint
-            ? [
-              {
-                id: 'finish',
-                coordinates: effectiveFinishPoint,
-                title: 'Финиш',
-                tintColor: '#FF0000',
-              },
-            ]
-            : []),
-        ]}
-      />
+      {Platform.OS === 'android' && MapLibre ? (
+        <MapLibre.MapView style={styles.map} mapStyle={MAPLIBRE_OSM_STYLE} logoEnabled={false}>
+          <MapLibre.Camera
+            zoomLevel={cameraPosition.zoom}
+            centerCoordinate={cameraCenterCoordinate}
+            animationDuration={0}
+          />
+          {hasRoute && (
+            <MapLibre.ShapeSource id="active-route-line-source" shape={androidRouteLine}>
+              <MapLibre.LineLayer
+                id="active-route-line-layer"
+                style={{
+                  lineColor: '#0066CC',
+                  lineWidth: 4,
+                }}
+              />
+            </MapLibre.ShapeSource>
+          )}
+          {androidRouteMarkers.features.length > 0 && (
+            <MapLibre.ShapeSource id="active-route-points-source" shape={androidRouteMarkers}>
+              <MapLibre.CircleLayer
+                id="active-route-points-layer"
+                style={{
+                  circleRadius: 6,
+                  circleColor: [
+                    'match',
+                    ['get', 'role'],
+                    'start',
+                    '#38B6FF',
+                    'finish',
+                    '#FF0000',
+                    'user',
+                    '#2ECC71',
+                    '#FFFFFF',
+                  ],
+                  circleStrokeWidth: 2,
+                  circleStrokeColor: '#FFFFFF',
+                }}
+              />
+            </MapLibre.ShapeSource>
+          )}
+        </MapLibre.MapView>
+      ) : (
+        <AppleMaps.View
+          style={styles.map}
+          cameraPosition={cameraPosition}
+          properties={{ isMyLocationEnabled: true }}
+          polylines={
+            hasRoute
+              ? [
+                {
+                  coordinates: effectiveRoutePoints,
+                  color: '#0066CC',
+                  width: 4,
+                },
+              ]
+              : []
+          }
+          markers={[
+            ...(effectiveStartPoint
+              ? [
+                {
+                  id: 'start',
+                  coordinates: effectiveStartPoint,
+                  title: 'Старт',
+                  tintColor: '#38B6FF',
+                },
+              ]
+              : []),
+            ...(effectiveFinishPoint
+              ? [
+                {
+                  id: 'finish',
+                  coordinates: effectiveFinishPoint,
+                  title: 'Финиш',
+                  tintColor: '#FF0000',
+                },
+              ]
+              : []),
+          ]}
+        />
+      )}
       <View style={styles.infoPanel}>
         {!hasAnySelectedPoints && (
           <Text style={styles.statusText}>Выберите старт и финиш в Explore и нажмите "Начать"</Text>
@@ -379,7 +537,7 @@ const styles = StyleSheet.create({
   map: { width: '100%', height: '100%' },
   infoPanel: {
     position: 'absolute',
-    bottom: 120,
+    bottom: Platform.OS === 'android' ? 20 : 120,
     left: 20,
     right: 20,
     backgroundColor: 'rgba(6, 26, 53, 0.93)',

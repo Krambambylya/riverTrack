@@ -1,14 +1,35 @@
 import { NativeTabs } from 'expo-router/unstable-native-tabs';
 import React from 'react';
+import { useColorScheme } from 'react-native';
+
+import { Colors } from '@/constants/theme';
 
 export default function AppTabs() {
+  const scheme = useColorScheme();
+  const isLight = scheme === 'light' || scheme === 'unspecified';
+  const c = Colors[isLight ? 'light' : 'dark'];
+
   return (
     <NativeTabs
-      backgroundColor="#081F3E"
-      indicatorColor="#1E5FAF"
-      iconColor="#9EC6FF"
-      tintColor="#FFFFFF"
-      labelStyle={{ selected: { color: '#FFFFFF', fontWeight: '700' }, color: '#9EC6FF' }}>
+      backgroundColor={isLight ? '#F0F4F8' : '#081F3E'}
+      indicatorColor={isLight ? '#38B6FF' : '#1E5FAF'}
+      iconColor={
+        isLight
+          ? { default: c.textSecondary, selected: c.text }
+          : { default: '#9EC6FF', selected: '#FFFFFF' }
+      }
+      tintColor={isLight ? c.text : '#FFFFFF'}
+      labelStyle={
+        isLight
+          ? {
+              default: { color: c.textSecondary },
+              selected: { color: c.text, fontWeight: '700' },
+            }
+          : {
+              default: { color: '#9EC6FF' },
+              selected: { color: '#FFFFFF', fontWeight: '700' },
+            }
+      }>
       <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Label>Маршруты</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon

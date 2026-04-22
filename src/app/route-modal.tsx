@@ -1,11 +1,13 @@
 import { deleteSavedRoute, getSavedRouteById, renameSavedRoute } from '@/entities/route';
+import { MAPLIBRE_OSM_STYLE } from '@/shared/config/maplibre-osm-style';
 import { AppleMaps } from 'expo-maps';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function RouteModalScreen() {
+  const MapLibre = Platform.OS === 'android' ? require('@maplibre/maplibre-react-native') : null;
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { routeId } = useLocalSearchParams<{ routeId?: string | string[] }>();
@@ -72,6 +74,44 @@ export default function RouteModalScreen() {
         longitude: (minLon + maxLon) / 2,
       },
       zoom,
+    };
+  }, [route]);
+  const androidCenterCoordinate = useMemo(() => {
+    return [previewCamera.coordinates.longitude, previewCamera.coordinates.latitude];
+  }, [previewCamera]);
+  const androidRouteLine = useMemo(() => {
+    if (!route) return null;
+    return {
+      type: 'Feature' as const,
+      properties: {},
+      geometry: {
+        type: 'LineString' as const,
+        coordinates: route.route.map((point) => [point.longitude, point.latitude]),
+      },
+    };
+  }, [route]);
+  const androidRoutePoints = useMemo(() => {
+    if (!route) return null;
+    return {
+      type: 'FeatureCollection' as const,
+      features: [
+        {
+          type: 'Feature' as const,
+          properties: { role: 'start' },
+          geometry: {
+            type: 'Point' as const,
+            coordinates: [route.start.lon, route.start.lat],
+          },
+        },
+        {
+          type: 'Feature' as const,
+          properties: { role: 'finish' },
+          geometry: {
+            type: 'Point' as const,
+            coordinates: [route.finish.lon, route.finish.lat],
+          },
+        },
+      ],
     };
   }, [route]);
 
@@ -148,37 +188,79 @@ export default function RouteModalScreen() {
             <Text style={styles.meta}>Реки: {route.rivers.join(', ') || 'Не определены'}</Text>
             <Text style={styles.meta}>Дата: {formatDate(route.createdAt)}</Text>
 
-            <AppleMaps.View
-              style={styles.previewMap}
-              cameraPosition={previewCamera}
-              polylines={[
-                {
-                  coordinates: route.route,
-                  color: '#38B6FF',
-                  width: 4,
-                },
-              ]}
-              markers={[
-                {
-                  id: 'start',
-                  coordinates: {
-                    latitude: route.start.lat,
-                    longitude: route.start.lon,
+            {Platform.OS === 'android' && MapLibre ? (
+              <MapLibre.MapView style={styles.previewMap} mapStyle={MAPLIBRE_OSM_STYLE} logoEnabled={false}>
+                <MapLibre.Camera
+                  zoomLevel={previewCamera.zoom}
+                  centerCoordinate={androidCenterCoordinate}
+                  animationDuration={0}
+                />
+                {androidRouteLine && (
+                  <MapLibre.ShapeSource id="route-modal-line-source" shape={androidRouteLine}>
+                    <MapLibre.LineLayer
+                      id="route-modal-line-layer"
+                      style={{
+                        lineColor: '#38B6FF',
+                        lineWidth: 4,
+                      }}
+                    />
+                  </MapLibre.ShapeSource>
+                )}
+                {androidRoutePoints && (
+                  <MapLibre.ShapeSource id="route-modal-points-source" shape={androidRoutePoints}>
+                    <MapLibre.CircleLayer
+                      id="route-modal-points-layer"
+                      style={{
+                        circleRadius: 6,
+                        circleColor: [
+                          'match',
+                          ['get', 'role'],
+                          'start',
+                          '#38B6FF',
+                          'finish',
+                          '#D93A3A',
+                          '#FFFFFF',
+                        ],
+                        circleStrokeWidth: 2,
+                        circleStrokeColor: '#FFFFFF',
+                      }}
+                    />
+                  </MapLibre.ShapeSource>
+                )}
+              </MapLibre.MapView>
+            ) : (
+              <AppleMaps.View
+                style={styles.previewMap}
+                cameraPosition={previewCamera}
+                polylines={[
+                  {
+                    coordinates: route.route,
+                    color: '#38B6FF',
+                    width: 4,
                   },
-                  title: 'Старт',
-                  tintColor: '#38B6FF',
-                },
-                {
-                  id: 'finish',
-                  coordinates: {
-                    latitude: route.finish.lat,
-                    longitude: route.finish.lon,
+                ]}
+                markers={[
+                  {
+                    id: 'start',
+                    coordinates: {
+                      latitude: route.start.lat,
+                      longitude: route.start.lon,
+                    },
+                    title: 'Старт',
+                    tintColor: '#38B6FF',
                   },
-                  title: 'Финиш',
-                  tintColor: '#D93A3A',
-                },
-              ]}
-            />
+                  {
+                    id: 'finish',
+                    coordinates: {
+                      latitude: route.finish.lat,
+                      longitude: route.finish.lon,
+                    },
+                    title: 'Финиш',
+                    tintColor: '#D93A3A',
+                  },
+                ]}
+              />
+            )}
 
             <View style={styles.actions}>
               <Pressable

@@ -4,8 +4,10 @@ import { LatLon, RoutePoint, SavedRoute } from './types';
 
 const ROUTES_STORAGE_KEY = 'rivertrack.saved-routes.v1';
 const ACTIVE_ROUTE_ID_STORAGE_KEY = 'rivertrack.active-route-id.v1';
+const PENDING_ROUTE_SELECTION_STORAGE_KEY = 'rivertrack.pending-route-selection.v1';
 let memoryFallbackRaw = '[]';
 let memoryActiveRouteId: string | null = null;
+let memoryPendingRouteSelection: { start: LatLon; finish: LatLon } | null = null;
 
 const normalizeCoordinateKey = (value: number) => value.toFixed(6);
 
@@ -131,5 +133,30 @@ export const getActiveRouteId = async (): Promise<string | null> => {
     return value ?? memoryActiveRouteId;
   } catch (error) {
     return memoryActiveRouteId;
+  }
+};
+
+export const setPendingRouteSelection = async (selection: { start: LatLon; finish: LatLon } | null): Promise<void> => {
+  memoryPendingRouteSelection = selection;
+  try {
+    if (selection) {
+      await AsyncStorage.setItem(PENDING_ROUTE_SELECTION_STORAGE_KEY, JSON.stringify(selection));
+    } else {
+      await AsyncStorage.removeItem(PENDING_ROUTE_SELECTION_STORAGE_KEY);
+    }
+  } catch (error) {
+    // fallback to in-memory storage only
+  }
+};
+
+export const getPendingRouteSelection = async (): Promise<{ start: LatLon; finish: LatLon } | null> => {
+  try {
+    const raw = await AsyncStorage.getItem(PENDING_ROUTE_SELECTION_STORAGE_KEY);
+    if (!raw) return memoryPendingRouteSelection;
+    const parsed = JSON.parse(raw) as { start?: LatLon; finish?: LatLon };
+    if (!parsed?.start || !parsed?.finish) return memoryPendingRouteSelection;
+    return parsed.start && parsed.finish ? { start: parsed.start, finish: parsed.finish } : memoryPendingRouteSelection;
+  } catch (error) {
+    return memoryPendingRouteSelection;
   }
 };

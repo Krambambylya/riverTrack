@@ -1,14 +1,17 @@
 import { BottomTabInset } from '@/constants/theme';
+import { setPendingRouteSelection } from '@/entities/route';
+import { MAPLIBRE_OSM_STYLE } from '@/shared/config/maplibre-osm-style';
 import * as Location from 'expo-location';
 import { AppleMaps } from 'expo-maps';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const FALLBACK_CENTER = { latitude: 48.67, longitude: 45.29 };
 
 export default function RouteConstructorWidget() {
+  const MapLibre = Platform.OS === 'android' ? require('@maplibre/maplibre-react-native') : null;
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const isInlineCoordinates = width >= 360;
@@ -93,9 +96,13 @@ export default function RouteConstructorWidget() {
   );
   const canStartRoute = isValid && hasStartPoint && hasFinishPoint;
 
-  const startNavigation = () => {
+  const startNavigation = async () => {
     if (!canStartRoute) return;
-    router.navigate({
+    await setPendingRouteSelection({
+      start: { lat: Number(startLat), lon: Number(startLon) },
+      finish: { lat: Number(finishLat), lon: Number(finishLon) },
+    });
+    router.push({
       pathname: '/map',
       params: {
         startLat,
@@ -106,12 +113,9 @@ export default function RouteConstructorWidget() {
     });
   };
 
-  const setSelectedPointFromMap = (event: any) => {
-    const coordinates = event?.coordinates ?? event?.nativeEvent?.coordinates;
-    if (!coordinates) return;
-
-    const nextLat = String(Number(coordinates.latitude).toFixed(6));
-    const nextLon = String(Number(coordinates.longitude).toFixed(6));
+  const setSelectedPoint = (latitude: number, longitude: number) => {
+    const nextLat = String(Number(latitude).toFixed(6));
+    const nextLon = String(Number(longitude).toFixed(6));
 
     if (selectionMode === 'start') {
       setStartLat(nextLat);
@@ -122,6 +126,66 @@ export default function RouteConstructorWidget() {
     setFinishLat(nextLat);
     setFinishLon(nextLon);
   };
+  const setSelectedPointFromAppleMap = (event: any) => {
+    const coordinates = event?.coordinates ?? event?.nativeEvent?.coordinates;
+    if (!coordinates) return;
+    setSelectedPoint(coordinates.latitude, coordinates.longitude);
+  };
+  const setSelectedPointFromAndroidMap = (event: any) => {
+    const trySetFromLngLat = (rawLongitude: unknown, rawLatitude: unknown) => {
+      const longitude = Number(rawLongitude);
+      const latitude = Number(rawLatitude);
+      if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
+      setSelectedPoint(latitude, longitude);
+      return true;
+    };
+
+    // MapLibre can emit either a GeoJSON feature (MapView.onPress)
+    // or an event payload shape from source/layer handlers.
+    const directFeatureCoords = event?.geometry?.coordinates;
+    if (Array.isArray(directFeatureCoords) && directFeatureCoords.length >= 2) {
+      const [longitude, latitude] = directFeatureCoords;
+      if (trySetFromLngLat(longitude, latitude)) return;
+    }
+
+    const featureListCoords = event?.features?.[0]?.geometry?.coordinates;
+    if (Array.isArray(featureListCoords) && featureListCoords.length >= 2) {
+      const [longitude, latitude] = featureListCoords;
+      if (trySetFromLngLat(longitude, latitude)) return;
+    }
+
+    if (trySetFromLngLat(event?.coordinates?.longitude, event?.coordinates?.latitude)) return;
+
+    if (trySetFromLngLat(event?.nativeEvent?.payload?.geometry?.coordinates?.[0], event?.nativeEvent?.payload?.geometry?.coordinates?.[1])) return;
+
+    if (trySetFromLngLat(event?.nativeEvent?.payload?.coordinates?.longitude, event?.nativeEvent?.payload?.coordinates?.latitude)) return;
+  };
+  const mapCenterCoordinate = useMemo(() => [mapCenter.longitude, mapCenter.latitude], [mapCenter]);
+  const androidSelectionPoints = useMemo(() => {
+    const features: {
+      type: 'Feature';
+      properties: { role: 'start' | 'finish' };
+      geometry: { type: 'Point'; coordinates: number[] };
+    }[] = [];
+    if (hasStartPoint) {
+      features.push({
+        type: 'Feature',
+        properties: { role: 'start' },
+        geometry: { type: 'Point', coordinates: [Number(startLon), Number(startLat)] },
+      });
+    }
+    if (hasFinishPoint) {
+      features.push({
+        type: 'Feature',
+        properties: { role: 'finish' },
+        geometry: { type: 'Point', coordinates: [Number(finishLon), Number(finishLat)] },
+      });
+    }
+    return {
+      type: 'FeatureCollection' as const,
+      features,
+    };
+  }, [finishLat, finishLon, hasFinishPoint, hasStartPoint, startLat, startLon]);
   const useCurrentLocationAsStart = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -139,7 +203,7 @@ export default function RouteConstructorWidget() {
         latitude: Number(nextLat),
         longitude: Number(nextLon),
       });
-      // Force camera re-apply for AppleMaps after programmatic center change.
+      // Force camera re-apply after programmatic center change.
       setCameraRevision((value) => value + 1);
       setSelectionMode('finish');
     } catch (error) {
@@ -179,43 +243,81 @@ export default function RouteConstructorWidget() {
             <Text style={styles.modeButtonText}>Точка финиша</Text>
           </Pressable>
         </View>
-        <AppleMaps.View
-          key={`route-constructor-map-${cameraRevision}`}
-          style={styles.map}
-          onMapClick={setSelectedPointFromMap}
-          cameraPosition={{
-            coordinates: mapCenter,
-            zoom: 13,
-          }}
-          markers={[
-            ...(hasStartPoint
-              ? [
-                {
-                  id: 'start',
-                  coordinates: {
-                    latitude: Number(startLat),
-                    longitude: Number(startLon),
-                  },
-                  title: 'Старт',
-                  tintColor: '#38B6FF',
-                },
-              ]
-              : []),
-            ...(hasFinishPoint
-              ? [
-                {
-                  id: 'finish',
-                  coordinates: {
-                    latitude: Number(finishLat),
-                    longitude: Number(finishLon),
-                  },
-                  title: 'Финиш',
-                  tintColor: '#D93A3A',
-                },
-              ]
-              : []),
-          ]}
-        />
+        {Platform.OS === 'android' && MapLibre ? (
+          <MapLibre.MapView
+            key={`route-constructor-map-${cameraRevision}`}
+            style={styles.map}
+            mapStyle={MAPLIBRE_OSM_STYLE}
+            logoEnabled={false}
+            onPress={setSelectedPointFromAndroidMap}
+            onLongPress={setSelectedPointFromAndroidMap}>
+            <MapLibre.Camera
+              defaultSettings={{
+                zoomLevel: 13,
+                centerCoordinate: mapCenterCoordinate,
+              }}
+            />
+            {androidSelectionPoints.features.length > 0 && (
+              <MapLibre.ShapeSource id="route-constructor-points-source" shape={androidSelectionPoints}>
+                <MapLibre.CircleLayer
+                  id="route-constructor-points-layer"
+                  style={{
+                    circleRadius: 6,
+                    circleColor: [
+                      'match',
+                      ['get', 'role'],
+                      'start',
+                      '#38B6FF',
+                      'finish',
+                      '#D93A3A',
+                      '#FFFFFF',
+                    ],
+                    circleStrokeWidth: 2,
+                    circleStrokeColor: '#FFFFFF',
+                  }}
+                />
+              </MapLibre.ShapeSource>
+            )}
+          </MapLibre.MapView>
+        ) : (
+          <AppleMaps.View
+            key={`route-constructor-map-${cameraRevision}`}
+            style={styles.map}
+            onMapClick={setSelectedPointFromAppleMap}
+            cameraPosition={{
+              coordinates: mapCenter,
+              zoom: 13,
+            }}
+            markers={[
+              ...(hasStartPoint
+                ? [
+                    {
+                      id: 'start',
+                      coordinates: {
+                        latitude: Number(startLat),
+                        longitude: Number(startLon),
+                      },
+                      title: 'Старт',
+                      tintColor: '#38B6FF',
+                    },
+                  ]
+                : []),
+              ...(hasFinishPoint
+                ? [
+                    {
+                      id: 'finish',
+                      coordinates: {
+                        latitude: Number(finishLat),
+                        longitude: Number(finishLon),
+                      },
+                      title: 'Финиш',
+                      tintColor: '#D93A3A',
+                    },
+                  ]
+                : []),
+            ]}
+          />
+        )}
       </View>
 
       <View style={styles.card}>
