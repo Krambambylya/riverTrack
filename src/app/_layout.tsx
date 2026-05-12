@@ -4,18 +4,19 @@ import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import { useColorScheme } from 'react-native';
 
+import { AppTheme } from '@/constants/theme';
 import { AnimatedSplashOverlay } from '@/shared/ui/animated-icon';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <StatusBar style="dark" />
+      <StatusBar style="light" />
       <AnimatedSplashOverlay />
       <Stack
         screenOptions={{
           headerShown: false,
-          contentStyle: { backgroundColor: '#061A35' },
+          contentStyle: { backgroundColor: AppTheme.background },
         }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen

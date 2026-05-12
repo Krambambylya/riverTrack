@@ -7,6 +7,35 @@ import '@/global.css';
 
 import { Platform } from 'react-native';
 
+/**
+ * Единая палитра приложения (Figma Make — главный экран RiverTrack, theme.css).
+ * Используйте в StyleSheet и в нативных картах для согласованного вида.
+ */
+export const AppTheme = {
+  background: '#1E1E1E',
+  foreground: '#FFFFFF',
+  card: '#2C2C2E',
+  primary: '#2B7A4B',
+  primaryForeground: '#FFFFFF',
+  secondary: '#3A3A3C',
+  mutedForeground: '#8E8E93',
+  border: 'rgba(255,255,255,0.1)',
+  borderStrong: 'rgba(255,255,255,0.12)',
+  inputBackground: '#3A3A3C',
+  overlayScrim: 'rgba(0,0,0,0.85)',
+  /** Точки и линии на карте (контраст на тайлах OSM / Apple) */
+  mapRouteLine: '#2B7A4B',
+  mapPointStart: '#6BCB9A',
+  mapPointFinish: '#D93A3A',
+  mapUserOrLineBlue: '#4A9FD8',
+  mapUserLocation: '#4CD964',
+  errorSoft: '#FF9A9A',
+  deleteBackground: '#5A2E2E',
+  deleteForeground: '#FFDADA',
+} as const;
+
+export type AppThemeColor = keyof typeof AppTheme;
+
 export const Colors = {
   light: {
     text: '#000000',

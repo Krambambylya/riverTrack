@@ -1,22 +1,209 @@
-import { BottomTabInset } from '@/constants/theme';
+import { AppTheme, BottomTabInset } from '@/constants/theme';
 import { SavedRoute, getSavedRoutes } from '@/entities/route';
-import { Image } from 'expo-image';
+import * as Location from 'expo-location';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
-import React, { useCallback, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { StatusBar } from 'expo-status-bar';
+import { lineString } from '@turf/helpers';
+import length from '@turf/length';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Svg, { Circle, Path } from 'react-native-svg';
 
-// const BG_SVG = require('@/assets/images/bg.svg');
-const BG_SVG = require('@/assets/images/bg 2.png');
+function RiverPathSvg({ widthPx }: { widthPx: number }) {
+  const w = Math.max(160, widthPx);
+  return (
+    <Svg width={w} height={32} viewBox="0 0 300 30" preserveAspectRatio="xMidYMid meet">
+      <Path
+        d="M 0 15 Q 50 5, 100 15 T 200 15 Q 250 20, 300 15"
+        stroke="rgba(43, 122, 75, 0.45)"
+        strokeWidth={2}
+        fill="none"
+      />
+      <Circle cx={0} cy={15} r={4} fill={AppTheme.primary} />
+      <Circle cx={300} cy={15} r={4} fill={AppTheme.primary} />
+    </Svg>
+  );
+}
+
+type PresetFilter = 'all' | 'popular' | 'recent' | 'nearby';
+
+const PRESET_LABELS: { id: PresetFilter; label: string }[] = [
+  { id: 'all', label: 'Все' },
+  { id: 'popular', label: 'Популярные' },
+  { id: 'recent', label: 'Недавние' },
+  { id: 'nearby', label: 'Ближайшие ко мне' },
+];
+
+function formatListDate(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function routeLengthKm(route: SavedRoute): number {
+  const pts = route.route;
+  if (!pts || pts.length < 2) return 0;
+  try {
+    const coords = pts.map((p) => [p.longitude, p.latitude] as [number, number]);
+    return length(lineString(coords), { units: 'kilometers' });
+  } catch {
+    return 0;
+  }
+}
+
+function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) *
+      Math.cos((lat2 * Math.PI) / 180) *
+      Math.sin(dLon / 2) *
+      Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+function HomeRouteCard({
+  route,
+  onOpen,
+  onStart,
+}: {
+  route: SavedRoute;
+  onOpen: () => void;
+  onStart: () => void;
+}) {
+  const { width: windowWidth } = useWindowDimensions();
+  const riverPathWidth = Math.max(160, windowWidth - 64);
+  const km = routeLengthKm(route);
+  const kmLabel = km < 0.05 ? '<0.1' : km < 10 ? km.toFixed(1) : Math.round(km).toString();
+
+  return (
+    <View style={cardStyles.wrap}>
+      <View style={cardStyles.row}>
+        <Pressable style={cardStyles.mainTap} onPress={onOpen}>
+          <Text style={cardStyles.title} numberOfLines={2}>
+            {route.title}
+          </Text>
+          <Text style={cardStyles.rivers} numberOfLines={1}>
+            {route.rivers.length > 0 ? route.rivers.join(', ') : 'Река не указана'}
+          </Text>
+          <View style={cardStyles.metaRow}>
+            <View style={cardStyles.metaItem}>
+              <MaterialCommunityIcons name="calendar-outline" size={16} color={AppTheme.mutedForeground} />
+              <Text style={cardStyles.metaText}>{formatListDate(route.createdAt)}</Text>
+            </View>
+            <View style={cardStyles.metaItem}>
+              <MaterialCommunityIcons name="navigation-variant" size={16} color={AppTheme.mutedForeground} />
+              <Text style={cardStyles.metaText}>{kmLabel} км</Text>
+            </View>
+          </View>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [cardStyles.startBtn, pressed && cardStyles.startBtnPressed]}
+          onPress={onStart}>
+          <Text style={cardStyles.startBtnText}>Старт</Text>
+        </Pressable>
+      </View>
+      <View style={cardStyles.riverViz}>
+        <RiverPathSvg widthPx={riverPathWidth} />
+      </View>
+    </View>
+  );
+}
+
+const cardStyles = StyleSheet.create({
+  wrap: {
+    backgroundColor: AppTheme.card,
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.12)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 6,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  mainTap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: AppTheme.foreground,
+    marginBottom: 8,
+  },
+  rivers: {
+    fontSize: 14,
+    color: AppTheme.mutedForeground,
+    marginBottom: 12,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  metaText: {
+    fontSize: 13,
+    color: AppTheme.mutedForeground,
+    fontWeight: '500',
+  },
+  startBtn: {
+    backgroundColor: AppTheme.primary,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+    justifyContent: 'center',
+  },
+  startBtnPressed: {
+    opacity: 0.9,
+  },
+  startBtnText: {
+    color: AppTheme.primaryForeground,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  riverViz: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+    position: 'relative',
+  },
+});
 
 export default function SavedRoutesListWidget() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const [routes, setRoutes] = useState<SavedRoute[]>([]);
   const [loading, setLoading] = useState(true);
+  const [preset, setPreset] = useState<PresetFilter>('all');
+  const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedRiver, setSelectedRiver] = useState<string>('all');
-  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest'>('newest');
+  const [userLoc, setUserLoc] = useState<{ lat: number; lon: number } | null>(null);
 
   const loadRoutes = useCallback(async (options?: { showLoading?: boolean }) => {
     const showLoading = options?.showLoading ?? false;
@@ -38,133 +225,151 @@ export default function SavedRoutesListWidget() {
     }, [loadRoutes])
   );
 
-  const formatDate = (iso: string) => {
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return 'Неизвестно';
-    return date.toLocaleString('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    });
-  };
-  const riverOptions = useMemo(() => {
-    const uniqueRivers = new Set<string>();
-    routes.forEach((route) => route.rivers.forEach((river) => uniqueRivers.add(river)));
-    return ['all', ...Array.from(uniqueRivers).sort((a, b) => a.localeCompare(b, 'ru-RU'))];
-  }, [routes]);
+  useEffect(() => {
+    if (preset !== 'nearby') {
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+        if (status !== 'granted' || cancelled) return;
+        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        if (!cancelled) {
+          setUserLoc({ lat: pos.coords.latitude, lon: pos.coords.longitude });
+        }
+      } catch {
+        if (!cancelled) setUserLoc(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [preset]);
 
   const filteredRoutes = useMemo(() => {
-    const query = searchQuery.trim().toLowerCase();
-    const base = routes.filter((route) => {
-      const byRiver = selectedRiver === 'all' || route.rivers.includes(selectedRiver);
-      if (!byRiver) return false;
-      if (!query) return true;
-      const haystack = `${route.title} ${route.rivers.join(' ')}`.toLowerCase();
-      return haystack.includes(query);
-    });
-    base.sort((a, b) => {
-      const left = new Date(a.updatedAt).getTime();
-      const right = new Date(b.updatedAt).getTime();
-      return sortOrder === 'newest' ? right - left : left - right;
-    });
-    return base;
-  }, [routes, searchQuery, selectedRiver, sortOrder]);
+    let list = [...routes];
+    const now = Date.now();
+    const monthMs = 30 * 24 * 60 * 60 * 1000;
+
+    if (preset === 'popular') {
+      list = list.filter((r) => r.rivers.length >= 2);
+    } else if (preset === 'recent') {
+      list = list.filter((r) => now - new Date(r.updatedAt).getTime() <= monthMs);
+    } else if (preset === 'nearby' && userLoc) {
+      list = [...list].sort((a, b) => {
+        const da = haversineKm(userLoc.lat, userLoc.lon, a.start.lat, a.start.lon);
+        const db = haversineKm(userLoc.lat, userLoc.lon, b.start.lat, b.start.lon);
+        return da - db;
+      });
+    }
+
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      list = list.filter((r) => {
+        const hay = `${r.title} ${r.rivers.join(' ')}`.toLowerCase();
+        return hay.includes(q);
+      });
+    }
+    return list;
+  }, [routes, preset, searchQuery, userLoc]);
 
   return (
     <View style={styles.root}>
-      <Image source={BG_SVG} style={styles.bgImage} contentFit="cover" transition={0} />
-      <View style={styles.bgTint} pointerEvents="none" />
+      <StatusBar style="light" />
       <ScrollView
         style={styles.screen}
         contentContainerStyle={[
-          styles.container,
-          { paddingTop: insets.top + 12, paddingBottom: insets.bottom + BottomTabInset + 16 },
-        ]}>
-        <Text style={styles.title}>Сохраненные маршруты</Text>
-        <Text style={styles.subtitle}>Быстрый доступ к маршрутам для выхода на воду без интернета.</Text>
-        {!loading && routes.length > 0 && (
-          <View style={styles.filtersCard}>
-            <TextInput
-              style={styles.filterInput}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Поиск по названию или реке"
-              placeholderTextColor="#666666"
-            />
-            <View style={styles.filterRow}>
-              <Pressable
-                style={[
-                  styles.filterChip,
-                  sortOrder === 'newest' && styles.filterChipActive,
-                ]}
-                onPress={() => setSortOrder('newest')}>
-                <Text style={[styles.filterChipText, sortOrder === 'newest' && styles.filterChipTextActive]}>
-                  Сначала новые
-                </Text>
-              </Pressable>
-              <Pressable
-                style={[
-                  styles.filterChip,
-                  sortOrder === 'oldest' && styles.filterChipActive,
-                ]}
-                onPress={() => setSortOrder('oldest')}>
-                <Text style={[styles.filterChipText, sortOrder === 'oldest' && styles.filterChipTextActive]}>
-                  Сначала старые
-                </Text>
-              </Pressable>
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.riverChipsRow}>
-              {riverOptions.map((river) => {
-                const active = selectedRiver === river;
+          styles.scrollContent,
+          { paddingTop: insets.top + 8, paddingBottom: insets.bottom + BottomTabInset + 24 },
+        ]}
+        showsVerticalScrollIndicator={false}>
+        <View style={styles.header}>
+          <View style={styles.headerTop}>
+            <Text style={styles.headerTitle}>Мои маршруты</Text>
+            <Pressable
+              style={({ pressed }) => [styles.headerIconBtn, pressed && styles.pressed]}
+              onPress={() => {}}>
+              <MaterialCommunityIcons name="account-outline" size={20} color={AppTheme.foreground} />
+            </Pressable>
+          </View>
+
+          <View style={styles.chipsRow}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipsScroll}>
+              {PRESET_LABELS.map(({ id, label }) => {
+                const on = preset === id;
                 return (
                   <Pressable
-                    key={river}
-                    style={[styles.riverChip, active && styles.riverChipActive]}
-                    onPress={() => setSelectedRiver(river)}>
-                    <Text style={[styles.riverChipText, active && styles.riverChipTextActive]}>
-                      {river === 'all' ? 'Все реки' : river}
-                    </Text>
+                    key={id}
+                    style={[styles.chip, on && styles.chipOn]}
+                    onPress={() => setPreset(id)}>
+                    <Text style={[styles.chipText, on && styles.chipTextOn]}>{label}</Text>
                   </Pressable>
                 );
               })}
+              <Pressable
+                style={({ pressed }) => [styles.chipIcon, pressed && styles.pressed]}
+                onPress={() => setSearchVisible((v) => !v)}>
+                <MaterialCommunityIcons name="tune-vertical" size={18} color={AppTheme.foreground} />
+              </Pressable>
             </ScrollView>
           </View>
-        )}
 
-        {loading && <Text style={styles.statusText}>Загрузка...</Text>}
-        {!loading && routes.length === 0 && (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Маршрутов пока нет</Text>
-            <Text style={styles.emptySubtitle}>
-              Создайте маршрут во вкладке «Построить» и нажмите «Начать».
-            </Text>
-            <Pressable
-              style={({ pressed }) => [styles.emptyActionButton, pressed && styles.continueButtonPressed]}
-              onPress={() => router.navigate('/explore')}>
-              <Text style={styles.emptyActionButtonText}>Перейти в «Построить»</Text>
-            </Pressable>
-          </View>
-        )}
-        {!loading && routes.length > 0 && filteredRoutes.length === 0 && (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Ничего не найдено</Text>
-            <Text style={styles.emptySubtitle}>Измените фильтры или строку поиска.</Text>
-          </View>
-        )}
+          {searchVisible ? (
+            <TextInput
+              style={styles.searchInput}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Поиск по названию или реке"
+              placeholderTextColor={AppTheme.mutedForeground}
+            />
+          ) : null}
+        </View>
 
-        {!loading &&
-          filteredRoutes.map((route) => (
-            <Pressable
-              key={route.id}
-              style={({ pressed }) => [styles.routeCard, pressed && styles.continueButtonPressed]}
-              onPress={() => router.push(`/route-modal?routeId=${encodeURIComponent(route.id)}`)}>
-              <View style={styles.routeHeaderRow}>
-                <Text style={styles.routeTitle}>{route.title}</Text>
-                <Text style={styles.routeDate}>{formatDate(route.createdAt)}</Text>
+        <View style={styles.listBlock}>
+          {loading && <Text style={styles.statusText}>Загрузка…</Text>}
+
+          {!loading && routes.length === 0 && (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>Нет маршрутов</Text>
+              <Text style={styles.emptySubtitle}>
+                Создайте маршрут во вкладке «Построить» и нажмите «Начать».
+              </Text>
+              <Pressable
+                style={({ pressed }) => [styles.emptyBtn, pressed && styles.pressed]}
+                onPress={() => router.navigate('/explore')}>
+                <Text style={styles.emptyBtnText}>Построить</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {!loading && routes.length > 0 && filteredRoutes.length === 0 && (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>Ничего не найдено</Text>
+              <Text style={styles.emptySubtitle}>
+                {preset === 'nearby' && !userLoc
+                  ? 'Разрешите геолокацию для сортировки по расстоянию.'
+                  : 'Измените фильтр или поиск.'}
+              </Text>
+            </View>
+          )}
+
+          {!loading &&
+            filteredRoutes.map((route) => (
+              <View key={route.id} style={styles.cardGap}>
+                <HomeRouteCard
+                  route={route}
+                  onOpen={() => router.push(`/route-modal?routeId=${encodeURIComponent(route.id)}`)}
+                  onStart={() =>
+                    router.push({
+                      pathname: '/map',
+                      params: { savedRouteId: route.id },
+                    })
+                  }
+                />
               </View>
-              <Text style={styles.routeMeta}>Реки: {route.rivers.join(', ') || 'Не определены'}</Text>
-            </Pressable>
-          ))}
+            ))}
+        </View>
       </ScrollView>
     </View>
   );
@@ -173,182 +378,131 @@ export default function SavedRoutesListWidget() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#fff',
-  },
-  bgImage: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  bgTint: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255, 255, 255, 0.35)',
+    backgroundColor: AppTheme.background,
   },
   screen: {
     flex: 1,
-    backgroundColor: 'transparent',
   },
-  container: {
-    backgroundColor: 'transparent',
-    paddingHorizontal: 20,
-    gap: 10,
+  scrollContent: {
+    paddingHorizontal: 16,
   },
-  title: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: '#000000',
+  header: {
+    backgroundColor: AppTheme.background,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: AppTheme.border,
+    paddingBottom: 12,
+    marginHorizontal: -16,
+    paddingHorizontal: 16,
+    marginBottom: 12,
   },
-  subtitle: {
-    color: '#1A1A1A',
-    fontSize: 17,
-    marginBottom: 8,
-  },
-  statusText: {
-    color: '#333333',
-    fontSize: 16,
-  },
-  filtersCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    padding: 10,
-    gap: 8,
-  },
-  filterInput: {
-    minHeight: 44,
-    borderWidth: 1.5,
-    borderColor: '#CCCCCC',
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    color: '#000000',
-    fontSize: 15,
-    backgroundColor: '#F7F7F7',
-  },
-  filterRow: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  filterChip: {
-    flex: 1,
-    minHeight: 40,
-    borderRadius: 9,
-    backgroundColor: '#F0F0F0',
-    borderWidth: 1,
-    borderColor: '#D0D0D0',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-  },
-  filterChipActive: {
-    backgroundColor: '#E3F2FD',
-    borderColor: '#1976D2',
-  },
-  filterChipText: {
-    color: '#000000',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  filterChipTextActive: {
-    color: '#000000',
-  },
-  riverChipsRow: {
-    gap: 6,
-    paddingRight: 6,
-  },
-  riverChip: {
-    minHeight: 36,
-    borderRadius: 9,
-    paddingHorizontal: 10,
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#D0D0D0',
-    backgroundColor: '#F0F0F0',
-  },
-  riverChipActive: {
-    backgroundColor: '#E3F2FD',
-    borderColor: '#1976D2',
-  },
-  riverChipText: {
-    color: '#000000',
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  riverChipTextActive: {
-    color: '#000000',
-  },
-  emptyCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    padding: 18,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  emptyTitle: {
-    color: '#000000',
-    fontSize: 22,
-    fontWeight: '800',
-  },
-  emptySubtitle: {
-    color: '#333333',
-    fontSize: 16,
-    lineHeight: 22,
-    marginTop: 6,
-  },
-  emptyActionButton: {
-    marginTop: 14,
-    minHeight: 58,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    borderWidth: 2,
-    borderColor: '#000000',
-    paddingVertical: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  emptyActionButtonText: {
-    color: '#000000',
-    fontSize: 18,
-    fontWeight: '800',
-  },
-  routeCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    padding: 18,
-    gap: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  routeHeaderRow: {
+  headerTop: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    paddingTop: 8,
+    paddingBottom: 16,
+  },
+  headerTitle: {
+    fontSize: 22,
+    fontWeight: '600',
+    color: AppTheme.foreground,
+    letterSpacing: -0.3,
+  },
+  headerIconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: AppTheme.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chipsRow: {
+    marginBottom: 0,
+  },
+  chipsScroll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingRight: 8,
+  },
+  chip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: AppTheme.card,
+  },
+  chipOn: {
+    backgroundColor: AppTheme.primary,
+  },
+  chipText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: AppTheme.foreground,
+  },
+  chipTextOn: {
+    color: AppTheme.primaryForeground,
+    fontWeight: '600',
+  },
+  chipIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: AppTheme.card,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 4,
+  },
+  searchInput: {
+    marginTop: 12,
+    minHeight: 44,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    backgroundColor: AppTheme.inputBackground,
+    color: AppTheme.foreground,
+    fontSize: 15,
+  },
+  listBlock: {
     gap: 12,
   },
-  routeTitle: {
-    color: '#000000',
-    fontSize: 22,
-    fontWeight: '800',
-    marginBottom: 4,
+  cardGap: {
+    marginBottom: 12,
   },
-  routeDate: {
-    color: '#444444',
+  statusText: {
+    color: AppTheme.mutedForeground,
+    fontSize: 15,
+  },
+  emptyCard: {
+    backgroundColor: AppTheme.card,
+    borderRadius: 12,
+    padding: 20,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: AppTheme.border,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: AppTheme.foreground,
+  },
+  emptySubtitle: {
     fontSize: 14,
-    fontWeight: '700',
+    color: AppTheme.mutedForeground,
+    marginTop: 8,
+    lineHeight: 20,
   },
-  routeMeta: {
-    color: '#333333',
-    fontSize: 16,
+  emptyBtn: {
+    marginTop: 16,
+    minHeight: 48,
+    borderRadius: 8,
+    backgroundColor: AppTheme.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  continueButtonPressed: {
-    opacity: 0.85,
+  emptyBtnText: {
+    color: AppTheme.primaryForeground,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  pressed: {
+    opacity: 0.75,
   },
 });

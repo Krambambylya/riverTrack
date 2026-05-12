@@ -1,3 +1,4 @@
+import { AppTheme } from '@/constants/theme';
 import {
   getActiveRouteId,
   getPendingRouteSelection,
@@ -463,7 +464,7 @@ export default function ActiveRouteWidget() {
               <MapLibre.LineLayer
                 id="active-route-line-layer"
                 style={{
-                  lineColor: '#0066CC',
+                  lineColor: AppTheme.mapRouteLine,
                   lineWidth: 4,
                 }}
               />
@@ -479,15 +480,15 @@ export default function ActiveRouteWidget() {
                     'match',
                     ['get', 'role'],
                     'start',
-                    '#38B6FF',
+                    AppTheme.mapPointStart,
                     'finish',
-                    '#FF0000',
+                    AppTheme.mapPointFinish,
                     'user',
-                    '#2ECC71',
-                    '#FFFFFF',
+                    AppTheme.mapUserLocation,
+                    AppTheme.foreground,
                   ],
                   circleStrokeWidth: 2,
-                  circleStrokeColor: '#FFFFFF',
+                  circleStrokeColor: AppTheme.foreground,
                 }}
               />
             </MapLibre.ShapeSource>
@@ -503,7 +504,7 @@ export default function ActiveRouteWidget() {
               ? [
                 {
                   coordinates: effectiveRoutePoints,
-                  color: '#0066CC',
+                  color: AppTheme.mapRouteLine,
                   width: 4,
                 },
               ]
@@ -516,7 +517,7 @@ export default function ActiveRouteWidget() {
                   id: 'start',
                   coordinates: effectiveStartPoint,
                   title: 'Старт',
-                  tintColor: '#38B6FF',
+                  tintColor: AppTheme.mapPointStart,
                 },
               ]
               : []),
@@ -526,7 +527,7 @@ export default function ActiveRouteWidget() {
                   id: 'finish',
                   coordinates: effectiveFinishPoint,
                   title: 'Финиш',
-                  tintColor: '#FF0000',
+                  tintColor: AppTheme.mapPointFinish,
                 },
               ]
               : []),
@@ -605,27 +606,27 @@ const styles = StyleSheet.create({
     bottom: Platform.OS === 'android' ? 20 : 120,
     left: 20,
     right: 20,
-    backgroundColor: 'rgba(6, 26, 53, 0.93)',
+    backgroundColor: 'rgba(30, 30, 30, 0.93)',
     borderWidth: 1,
-    borderColor: '#3D6498',
+    borderColor: AppTheme.borderStrong,
     padding: 16,
     borderRadius: 16,
     alignItems: 'center',
   },
   infoText: {
-    color: '#FFFFFF',
+    color: AppTheme.foreground,
     fontSize: 18,
     fontWeight: '800',
   },
   statusText: {
-    color: '#E6F1FF',
+    color: AppTheme.foreground,
     fontSize: 17,
     fontWeight: '700',
     marginBottom: 8,
     textAlign: 'center',
   },
   errorText: {
-    color: '#FF9A9A',
+    color: AppTheme.errorSoft,
     fontSize: 16,
     fontWeight: '700',
     marginBottom: 8,
@@ -634,33 +635,33 @@ const styles = StyleSheet.create({
   progressTrack: {
     width: '100%',
     height: 14,
-    backgroundColor: '#18477D',
+    backgroundColor: AppTheme.secondary,
     borderWidth: 1.5,
-    borderColor: '#5CA8F4',
+    borderColor: AppTheme.borderStrong,
     borderRadius: 999,
     overflow: 'hidden',
     marginTop: 12,
   },
   progressFill: {
     height: '100%',
-    backgroundColor: '#38B6FF',
+    backgroundColor: AppTheme.primary,
     borderRadius: 999,
   },
   progressText: {
-    color: '#D8ECFF',
+    color: AppTheme.mutedForeground,
     fontSize: 15,
     fontWeight: '700',
     marginTop: 8,
   },
   riverText: {
-    color: '#7FD2FF',
+    color: AppTheme.mapPointStart,
     fontSize: 16,
     fontWeight: '700',
     marginBottom: 8,
     textAlign: 'center',
   },
   savedText: {
-    color: '#BFE6FF',
+    color: AppTheme.mutedForeground,
     fontSize: 14,
     fontWeight: '700',
     marginBottom: 8,
@@ -669,7 +670,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     minHeight: 58,
     minWidth: 220,
-    backgroundColor: '#38B6FF',
+    backgroundColor: AppTheme.primary,
     borderRadius: 14,
     paddingVertical: 10,
     paddingHorizontal: 16,
@@ -680,7 +681,7 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   exploreButtonText: {
-    color: '#FFFFFF',
+    color: AppTheme.primaryForeground,
     fontSize: 18,
     fontWeight: '800',
   },

@@ -1,3 +1,4 @@
+import { AppTheme } from '@/constants/theme';
 import { deleteSavedRoute, getSavedRouteById, renameSavedRoute } from '@/entities/route';
 import { MAPLIBRE_OSM_STYLE } from '@/shared/config/maplibre-osm-style';
 import { AppleMaps } from 'expo-maps';
@@ -163,7 +164,7 @@ export default function RouteModalScreen() {
                     value={editingTitle}
                     onChangeText={setEditingTitle}
                     placeholder="Название маршрута"
-                    placeholderTextColor="#8A8A8A"
+                    placeholderTextColor={AppTheme.mutedForeground}
                     autoFocus
                     returnKeyType="done"
                     selection={{ start: editingTitle.length, end: editingTitle.length }}
@@ -206,7 +207,7 @@ export default function RouteModalScreen() {
                       <MapLibre.LineLayer
                         id="route-modal-line-layer"
                         style={{
-                          lineColor: '#38B6FF',
+                          lineColor: AppTheme.mapRouteLine,
                           lineWidth: 4,
                         }}
                       />
@@ -222,13 +223,13 @@ export default function RouteModalScreen() {
                             'match',
                             ['get', 'role'],
                             'start',
-                            '#38B6FF',
+                            AppTheme.mapPointStart,
                             'finish',
-                            '#D93A3A',
-                            '#FFFFFF',
+                            AppTheme.mapPointFinish,
+                            AppTheme.foreground,
                           ],
                           circleStrokeWidth: 2,
-                          circleStrokeColor: '#FFFFFF',
+                          circleStrokeColor: AppTheme.foreground,
                         }}
                       />
                     </MapLibre.ShapeSource>
@@ -241,7 +242,7 @@ export default function RouteModalScreen() {
                   polylines={[
                     {
                       coordinates: route.route,
-                      color: '#38B6FF',
+                      color: AppTheme.mapRouteLine,
                       width: 4,
                     },
                   ]}
@@ -253,7 +254,7 @@ export default function RouteModalScreen() {
                         longitude: route.start.lon,
                       },
                       title: 'Старт',
-                      tintColor: '#38B6FF',
+                      tintColor: AppTheme.mapPointStart,
                     },
                     {
                       id: 'finish',
@@ -262,7 +263,7 @@ export default function RouteModalScreen() {
                         longitude: route.finish.lon,
                       },
                       title: 'Финиш',
-                      tintColor: '#D93A3A',
+                      tintColor: AppTheme.mapPointFinish,
                     },
                   ]}
                 />
@@ -294,7 +295,7 @@ export default function RouteModalScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    backgroundColor: AppTheme.overlayScrim,
     justifyContent: 'flex-end',
     paddingHorizontal: 12,
     paddingTop: 72,
@@ -305,10 +306,10 @@ const styles = StyleSheet.create({
   modalCard: {
     paddingTop: 12,
     maxHeight: '85%',
-    backgroundColor: '#0C2A52',
+    backgroundColor: AppTheme.card,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#2A4F84',
+    borderColor: AppTheme.borderStrong,
     overflow: 'hidden',
   },
   container: {
@@ -325,24 +326,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   statusText: {
-    color: '#C7DAF5',
+    color: AppTheme.mutedForeground,
     fontSize: 16,
   },
   emptyCard: {
-    backgroundColor: '#12345E',
+    backgroundColor: AppTheme.secondary,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#2A4F84',
+    borderColor: AppTheme.borderStrong,
     padding: 14,
     gap: 10,
   },
   emptyTitle: {
-    color: '#E6F1FF',
+    color: AppTheme.foreground,
     fontSize: 20,
     fontWeight: '800',
   },
   title: {
-    color: '#E6F1FF',
+    color: AppTheme.foreground,
     fontSize: 24,
     fontWeight: '800',
     minHeight: 34,
@@ -350,7 +351,7 @@ const styles = StyleSheet.create({
   },
   titleInput: {
     flex: 1,
-    color: '#E6F1FF',
+    color: AppTheme.foreground,
     fontSize: 24,
     fontWeight: '800',
     minHeight: 34,
@@ -359,7 +360,7 @@ const styles = StyleSheet.create({
     borderWidth: 0,
   },
   meta: {
-    color: '#C7DAF5',
+    color: AppTheme.mutedForeground,
     fontSize: 15,
   },
   closeIconButton: {
@@ -367,13 +368,13 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#3B5F92',
-    backgroundColor: '#12345E',
+    borderColor: AppTheme.borderStrong,
+    backgroundColor: AppTheme.secondary,
     alignItems: 'center',
     justifyContent: 'center',
   },
   closeIconText: {
-    color: '#E6F1FF',
+    color: AppTheme.foreground,
     fontSize: 22,
     lineHeight: 22,
     fontWeight: '800',
@@ -390,7 +391,7 @@ const styles = StyleSheet.create({
   },
   primaryButton: {
     minHeight: 56,
-    backgroundColor: '#38B6FF',
+    backgroundColor: AppTheme.primary,
     borderRadius: 12,
     paddingVertical: 11,
     alignItems: 'center',
@@ -398,13 +399,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   primaryButtonText: {
-    color: '#FFFFFF',
+    color: AppTheme.primaryForeground,
     fontSize: 18,
     fontWeight: '800',
   },
   deleteButton: {
     minHeight: 56,
-    backgroundColor: '#7D2B2B',
+    backgroundColor: AppTheme.deleteBackground,
     borderRadius: 12,
     paddingVertical: 11,
     paddingHorizontal: 12,
@@ -412,7 +413,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   deleteButtonText: {
-    color: '#FFDADA',
+    color: AppTheme.deleteForeground,
     fontSize: 18,
     fontWeight: '700',
   },

@@ -1,3 +1,4 @@
+import { AppTheme } from '@/constants/theme';
 import { setPendingRouteSelection } from '@/entities/route';
 import { MAPLIBRE_OSM_STYLE } from '@/shared/config/maplibre-osm-style';
 import * as Location from 'expo-location';
@@ -234,13 +235,13 @@ export default function RouteConstructorWidget() {
                       'match',
                       ['get', 'role'],
                       'start',
-                      '#38B6FF',
+                      AppTheme.mapPointStart,
                       'finish',
-                      '#D93A3A',
-                      '#FFFFFF',
+                      AppTheme.mapPointFinish,
+                      AppTheme.foreground,
                     ],
                     circleStrokeWidth: 2,
-                    circleStrokeColor: '#FFFFFF',
+                    circleStrokeColor: AppTheme.foreground,
                   }}
                 />
               </MapLibre.ShapeSource>
@@ -265,7 +266,7 @@ export default function RouteConstructorWidget() {
                       longitude: Number(startLon),
                     },
                     title: 'Старт',
-                    tintColor: '#38B6FF',
+                    tintColor: AppTheme.mapPointStart,
                   },
                 ]
                 : []),
@@ -278,7 +279,7 @@ export default function RouteConstructorWidget() {
                       longitude: Number(finishLon),
                     },
                     title: 'Финиш',
-                    tintColor: '#D93A3A',
+                    tintColor: AppTheme.mapPointFinish,
                   },
                 ]
                 : []),
@@ -328,7 +329,7 @@ export default function RouteConstructorWidget() {
 const styles = StyleSheet.create({
   root: {
     flex: 1,
-    backgroundColor: '#061A35',
+    backgroundColor: AppTheme.background,
   },
   mapLayer: {
     ...StyleSheet.absoluteFillObject,
@@ -356,31 +357,31 @@ const styles = StyleSheet.create({
     minHeight: 48,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: '#3A5E91',
+    borderColor: AppTheme.borderStrong,
     paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(12, 42, 82, 0.92)',
+    backgroundColor: AppTheme.secondary,
   },
   modeButtonActiveStart: {
-    backgroundColor: 'rgba(29, 79, 133, 0.95)',
-    borderColor: '#6CC4FF',
+    backgroundColor: 'rgba(43, 122, 75, 0.45)',
+    borderColor: AppTheme.mapPointStart,
   },
   modeButtonActiveFinish: {
     backgroundColor: 'rgba(90, 43, 43, 0.95)',
-    borderColor: '#FF7E7E',
+    borderColor: AppTheme.mapPointFinish,
   },
   modeButtonText: {
-    color: '#E6F1FF',
+    color: AppTheme.foreground,
     fontWeight: '700',
     fontSize: 15,
   },
   secondaryButton: {
     minHeight: 44,
-    backgroundColor: 'rgba(27, 77, 125, 0.92)',
+    backgroundColor: AppTheme.secondary,
     borderRadius: 12,
     borderWidth: 1.5,
-    borderColor: '#82CCFF',
+    borderColor: AppTheme.borderStrong,
     paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
@@ -389,7 +390,7 @@ const styles = StyleSheet.create({
     opacity: 0.85,
   },
   secondaryButtonText: {
-    color: '#D8ECFF',
+    color: AppTheme.foreground,
     fontSize: 15,
     fontWeight: '700',
   },
@@ -403,24 +404,24 @@ const styles = StyleSheet.create({
   },
   startButton: {
     minHeight: 56,
-    backgroundColor: '#38B6FF',
+    backgroundColor: AppTheme.primary,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   startButtonDisabled: {
-    backgroundColor: '#466E8C',
+    backgroundColor: AppTheme.secondary,
     opacity: 0.65,
   },
   startButtonPressed: {
     opacity: 0.88,
   },
   startButtonText: {
-    color: '#FFFFFF',
+    color: AppTheme.primaryForeground,
     fontSize: 18,
     fontWeight: '800',
   },
   startButtonTextDisabled: {
-    color: '#E0E8EF',
+    color: AppTheme.mutedForeground,
   },
 });
