@@ -4,11 +4,34 @@ import { MAPLIBRE_OSM_STYLE } from '@/shared/config/maplibre-osm-style';
 import * as Location from 'expo-location';
 import { AppleMaps } from 'expo-maps';
 import { router } from 'expo-router';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const FALLBACK_CENTER = { latitude: 48.67, longitude: 45.29 };
+
+/** Стабильная ссылка: иначе Camera перерисовывается каждый рендер родителя (memo не спасает). */
+const ROUTE_CONSTRUCTOR_MAP_INITIAL_CAMERA = {
+  zoomLevel: 13,
+  centerCoordinate: [FALLBACK_CENTER.longitude, FALLBACK_CENTER.latitude] as [number, number],
+};
+
+function applyRouteConstructorCamera(
+  cameraRef: React.RefObject<{ setCamera: (config: Record<string, unknown>) => void } | null>,
+  latitude: number,
+  longitude: number
+) {
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      cameraRef.current?.setCamera?.({
+        centerCoordinate: [longitude, latitude],
+        zoomLevel: 13,
+        animationDuration: 0,
+        animationMode: 'moveTo',
+      });
+    });
+  });
+}
 
 export default function RouteConstructorWidget() {
   const MapLibre = Platform.OS === 'android' ? require('@maplibre/maplibre-react-native') : null;
@@ -19,7 +42,9 @@ export default function RouteConstructorWidget() {
   const [finishLon, setFinishLon] = useState('');
   const [selectionMode, setSelectionMode] = useState<'start' | 'finish'>('start');
   const [mapCenter, setMapCenter] = useState(FALLBACK_CENTER);
-  const [cameraRevision, setCameraRevision] = useState(0);
+  const cameraRef = useRef<{
+    setCamera: (config: Record<string, unknown>) => void;
+  } | null>(null);
   const startLatNum = Number(startLat);
   const startLonNum = Number(startLon);
   const finishLatNum = Number(finishLat);
@@ -38,10 +63,12 @@ export default function RouteConstructorWidget() {
         });
         if (!active) return;
 
-        setMapCenter({
+        const next = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
-        });
+        };
+        setMapCenter(next);
+        applyRouteConstructorCamera(cameraRef, next.latitude, next.longitude);
       } catch {
         // keep fallback center
       }
@@ -157,7 +184,15 @@ export default function RouteConstructorWidget() {
 
     if (trySetFromLngLat(event?.nativeEvent?.payload?.coordinates?.longitude, event?.nativeEvent?.payload?.coordinates?.latitude)) return;
   };
-  const mapCenterCoordinate = useMemo(() => [mapCenter.longitude, mapCenter.latitude], [mapCenter]);
+
+  const appleCameraPosition = useMemo(
+    () => ({
+      coordinates: mapCenter,
+      zoom: 13,
+    }),
+    [mapCenter]
+  );
+
   const androidSelectionPoints = useMemo(() => {
     const features: {
       type: 'Feature';
@@ -197,11 +232,12 @@ export default function RouteConstructorWidget() {
 
       setStartLat(nextLat);
       setStartLon(nextLon);
-      setMapCenter({
+      const nextCenter = {
         latitude: Number(nextLat),
         longitude: Number(nextLon),
-      });
-      setCameraRevision((value) => value + 1);
+      };
+      setMapCenter(nextCenter);
+      applyRouteConstructorCamera(cameraRef, nextCenter.latitude, nextCenter.longitude);
       setSelectionMode('finish');
     } catch {
       // keep current values
@@ -213,49 +249,37 @@ export default function RouteConstructorWidget() {
       <View style={styles.mapLayer}>
         {Platform.OS === 'android' && MapLibre ? (
           <MapLibre.MapView
-            key={`route-constructor-map-${cameraRevision}`}
             style={styles.map}
             mapStyle={MAPLIBRE_OSM_STYLE}
             logoEnabled={false}
             onPress={setSelectedPointFromAndroidMap}
             onLongPress={setSelectedPointFromAndroidMap}>
-            <MapLibre.Camera
-              defaultSettings={{
-                zoomLevel: 13,
-                centerCoordinate: mapCenterCoordinate,
-              }}
-            />
-            {androidSelectionPoints.features.length > 0 && (
-              <MapLibre.ShapeSource id="route-constructor-points-source" shape={androidSelectionPoints}>
-                <MapLibre.CircleLayer
-                  id="route-constructor-points-layer"
-                  style={{
-                    circleRadius: 6,
-                    circleColor: [
-                      'match',
-                      ['get', 'role'],
-                      'start',
-                      AppTheme.mapPointStart,
-                      'finish',
-                      AppTheme.mapPointFinish,
-                      AppTheme.foreground,
-                    ],
-                    circleStrokeWidth: 2,
-                    circleStrokeColor: AppTheme.foreground,
-                  }}
-                />
-              </MapLibre.ShapeSource>
-            )}
+            <MapLibre.Camera ref={cameraRef} defaultSettings={ROUTE_CONSTRUCTOR_MAP_INITIAL_CAMERA} />
+            <MapLibre.ShapeSource id="route-constructor-points-source" shape={androidSelectionPoints}>
+              <MapLibre.CircleLayer
+                id="route-constructor-points-layer"
+                style={{
+                  circleRadius: 6,
+                  circleColor: [
+                    'match',
+                    ['get', 'role'],
+                    'start',
+                    AppTheme.mapPointStart,
+                    'finish',
+                    AppTheme.mapPointFinish,
+                    AppTheme.foreground,
+                  ],
+                  circleStrokeWidth: 2,
+                  circleStrokeColor: AppTheme.foreground,
+                }}
+              />
+            </MapLibre.ShapeSource>
           </MapLibre.MapView>
         ) : (
           <AppleMaps.View
-            key={`route-constructor-map-${cameraRevision}`}
             style={styles.map}
             onMapClick={setSelectedPointFromAppleMap}
-            cameraPosition={{
-              coordinates: mapCenter,
-              zoom: 13,
-            }}
+            cameraPosition={appleCameraPosition}
             markers={[
               ...(hasStartPoint
                 ? [
@@ -292,14 +316,34 @@ export default function RouteConstructorWidget() {
         <View style={styles.topPanel} pointerEvents="auto">
           <View style={styles.modeRow}>
             <Pressable
-              style={[styles.modeButton, selectionMode === 'start' && styles.modeButtonActiveStart]}
+              style={({ pressed }) => [
+                styles.modeButton,
+                selectionMode === 'start' && styles.modeButtonActiveStart,
+                pressed && styles.modeButtonPressed,
+              ]}
               onPress={() => setSelectionMode('start')}>
-              <Text style={styles.modeButtonText}>Точка старта</Text>
+              <Text
+                style={[
+                  styles.modeButtonText,
+                  selectionMode === 'start' && styles.modeButtonTextActiveStart,
+                ]}>
+                Точка старта
+              </Text>
             </Pressable>
             <Pressable
-              style={[styles.modeButton, selectionMode === 'finish' && styles.modeButtonActiveFinish]}
+              style={({ pressed }) => [
+                styles.modeButton,
+                selectionMode === 'finish' && styles.modeButtonActiveFinish,
+                pressed && styles.modeButtonPressed,
+              ]}
               onPress={() => setSelectionMode('finish')}>
-              <Text style={styles.modeButtonText}>Точка финиша</Text>
+              <Text
+                style={[
+                  styles.modeButtonText,
+                  selectionMode === 'finish' && styles.modeButtonTextActiveFinish,
+                ]}>
+                Точка финиша
+              </Text>
             </Pressable>
           </View>
           {/* <Pressable
@@ -350,31 +394,44 @@ const styles = StyleSheet.create({
   },
   modeRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
   },
   modeButton: {
     flex: 1,
-    minHeight: 48,
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: AppTheme.borderStrong,
+    minHeight: 44,
     paddingVertical: 10,
+    paddingHorizontal: 14,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: AppTheme.secondary,
+    backgroundColor: AppTheme.card,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: AppTheme.borderStrong,
+  },
+  modeButtonPressed: {
+    opacity: 0.88,
   },
   modeButtonActiveStart: {
-    backgroundColor: 'rgba(43, 122, 75, 0.45)',
-    borderColor: AppTheme.mapPointStart,
+    backgroundColor: AppTheme.primary,
+    borderColor: AppTheme.primary,
   },
   modeButtonActiveFinish: {
-    backgroundColor: 'rgba(90, 43, 43, 0.95)',
+    backgroundColor: AppTheme.red,
+    borderWidth: 2,
     borderColor: AppTheme.mapPointFinish,
   },
   modeButtonText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: AppTheme.mutedForeground,
+  },
+  modeButtonTextActiveStart: {
+    color: AppTheme.primaryForeground,
+    fontWeight: '600',
+  },
+  modeButtonTextActiveFinish: {
     color: AppTheme.foreground,
-    fontWeight: '700',
-    fontSize: 15,
+    fontWeight: '600',
   },
   secondaryButton: {
     minHeight: 44,

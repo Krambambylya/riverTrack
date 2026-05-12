@@ -16,7 +16,7 @@ export default function AppTabs() {
       <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Label>Маршруты</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/home.png')}
+          src={require('@/assets/images/tabIcons/home/home.png')}
           renderingMode="template"
         />
       </NativeTabs.Trigger>
@@ -24,14 +24,14 @@ export default function AppTabs() {
       <NativeTabs.Trigger name="explore">
         <NativeTabs.Trigger.Label>Построить</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
+          src={require('@/assets/images/tabIcons/explore/square-plus.png')}
           renderingMode="template"
         />
       </NativeTabs.Trigger>
       <NativeTabs.Trigger name="map">
         <NativeTabs.Trigger.Label>В пути</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tab-globe.png')}
+          src={require('@/assets/images/tabIcons/map/compass.png')}
           renderingMode="template"
         />
       </NativeTabs.Trigger>

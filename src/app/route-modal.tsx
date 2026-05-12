@@ -142,6 +142,7 @@ export default function RouteModalScreen() {
       <View style={[styles.modalCard, { marginBottom: Math.max(insets.bottom, 12) }]}>
         <ScrollView
           showsVerticalScrollIndicator={false}
+          removeClippedSubviews={false}
           contentContainerStyle={styles.container}>
 
           {loading && <Text style={styles.statusText}>Загрузка...</Text>}

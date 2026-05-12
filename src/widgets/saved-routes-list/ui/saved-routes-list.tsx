@@ -1,11 +1,11 @@
 import { AppTheme, BottomTabInset } from '@/constants/theme';
-import { SavedRoute, getSavedRoutes } from '@/entities/route';
-import * as Location from 'expo-location';
+import { getSavedRoutes, SavedRoute, type RoutePoint } from '@/entities/route';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { useFocusEffect, useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
 import { lineString } from '@turf/helpers';
 import length from '@turf/length';
+import * as Location from 'expo-location';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
@@ -19,18 +19,131 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Circle, Path } from 'react-native-svg';
 
-function RiverPathSvg({ widthPx }: { widthPx: number }) {
+const RIVER_VIEW_W = 300;
+/** Высота viewBox: больше — маршрут не «сплющен» по вертикали на карточке */
+const RIVER_VIEW_H = 100;
+const RIVER_PAD = 6;
+const RIVER_MAX_POINTS = 96;
+
+function decimateRoutePoints(pts: RoutePoint[], max: number): RoutePoint[] {
+  if (pts.length <= max) return pts;
+  const out: RoutePoint[] = [];
+  const last = pts.length - 1;
+  for (let i = 0; i < max; i++) {
+    const t = i / (max - 1);
+    const idx = Math.round(t * last);
+    out.push(pts[idx]);
+  }
+  return out;
+}
+
+function collectPolylineForPreview(route: SavedRoute): RoutePoint[] {
+  const r = route.route;
+  if (r && r.length >= 2) {
+    return decimateRoutePoints(r, RIVER_MAX_POINTS);
+  }
+  if (r && r.length === 1) {
+    return [
+      { latitude: route.start.lat, longitude: route.start.lon },
+      r[0],
+      { latitude: route.finish.lat, longitude: route.finish.lon },
+    ];
+  }
+  return [
+    { latitude: route.start.lat, longitude: route.start.lon },
+    { latitude: route.finish.lat, longitude: route.finish.lon },
+  ];
+}
+
+function buildRiverSvgPreview(route: SavedRoute): {
+  d: string;
+  sx: number;
+  sy: number;
+  ex: number;
+  ey: number;
+} | null {
+  const pts = collectPolylineForPreview(route);
+  if (pts.length < 2) return null;
+
+  const lats = pts.map((p) => p.latitude);
+  const lons = pts.map((p) => p.longitude);
+  let minLat = Math.min(...lats);
+  let maxLat = Math.max(...lats);
+  let minLon = Math.min(...lons);
+  let maxLon = Math.max(...lons);
+
+  const latSpan = maxLat - minLat;
+  const lonSpan = maxLon - minLon;
+  const eps = 1e-6;
+  if (latSpan < eps) {
+    minLat -= eps;
+    maxLat += eps;
+  }
+  if (lonSpan < eps) {
+    minLon -= eps;
+    maxLon += eps;
+  }
+
+  const innerW = RIVER_VIEW_W - 2 * RIVER_PAD;
+  const innerH = RIVER_VIEW_H - 2 * RIVER_PAD;
+
+  const midLat = (minLat + maxLat) / 2;
+  const cosMid = Math.cos((midLat * Math.PI) / 180);
+
+  let widthGeo = (maxLon - minLon) * cosMid;
+  let heightGeo = maxLat - minLat;
+  if (widthGeo < eps) widthGeo = eps;
+  if (heightGeo < eps) heightGeo = eps;
+
+  const scale = Math.min(innerW / widthGeo, innerH / heightGeo);
+  const scaledW = widthGeo * scale;
+  const scaledH = heightGeo * scale;
+  const offX = RIVER_PAD + (innerW - scaledW) / 2;
+  const offY = RIVER_PAD + (innerH - scaledH) / 2;
+
+  const project = (p: RoutePoint) => {
+    const x = offX + (p.longitude - minLon) * cosMid * scale;
+    const y = offY + (maxLat - p.latitude) * scale;
+    return { x, y };
+  };
+
+  const projected = pts.map(project);
+  const d = projected.map((q, i) => `${i === 0 ? 'M' : 'L'} ${q.x.toFixed(2)} ${q.y.toFixed(2)}`).join(' ');
+  const first = projected[0];
+  const last = projected[projected.length - 1];
+  return { d, sx: first.x, sy: first.y, ex: last.x, ey: last.y };
+}
+
+function RiverPathSvg({ widthPx, route }: { widthPx: number; route: SavedRoute }) {
   const w = Math.max(160, widthPx);
+  const preview = useMemo(() => buildRiverSvgPreview(route), [route]);
+  const svgH = Math.max(40, Math.round((w * RIVER_VIEW_H) / RIVER_VIEW_W));
+
+  if (!preview) {
+    return (
+      <Svg width={w} height={svgH} viewBox={`0 0 ${RIVER_VIEW_W} ${RIVER_VIEW_H}`} preserveAspectRatio="xMidYMid meet">
+        <Path
+          d={`M 0 ${RIVER_VIEW_H / 2} Q 50 ${RIVER_VIEW_H / 2 - 12}, 100 ${RIVER_VIEW_H / 2} T 200 ${RIVER_VIEW_H / 2} Q 250 ${RIVER_VIEW_H / 2 + 8}, 300 ${RIVER_VIEW_H / 2}`}
+          stroke="rgba(43, 122, 75, 0.45)"
+          strokeWidth={2}
+          fill="none"
+        />
+      </Svg>
+    );
+  }
+
   return (
-    <Svg width={w} height={32} viewBox="0 0 300 30" preserveAspectRatio="xMidYMid meet">
+    <Svg width={w} height={svgH} viewBox={`0 0 ${RIVER_VIEW_W} ${RIVER_VIEW_H}`} preserveAspectRatio="xMidYMid meet">
       <Path
-        d="M 0 15 Q 50 5, 100 15 T 200 15 Q 250 20, 300 15"
+        d={preview.d}
         stroke="rgba(43, 122, 75, 0.45)"
         strokeWidth={2}
         fill="none"
+        strokeLinecap="round"
+        strokeLinejoin="round"
       />
-      <Circle cx={0} cy={15} r={4} fill={AppTheme.primary} />
-      <Circle cx={300} cy={15} r={4} fill={AppTheme.primary} />
+      <Circle cx={preview.sx} cy={preview.sy} r={4} fill={AppTheme.primary} />
+      <Circle cx={preview.ex} cy={preview.ey} r={4} fill={AppTheme.mapPointFinish} />
     </Svg>
   );
 }
@@ -68,9 +181,9 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
     Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
+    Math.cos((lat2 * Math.PI) / 180) *
+    Math.sin(dLon / 2) *
+    Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
 }
@@ -117,7 +230,7 @@ function HomeRouteCard({
         </Pressable>
       </View>
       <View style={cardStyles.riverViz}>
-        <RiverPathSvg widthPx={riverPathWidth} />
+        <RiverPathSvg widthPx={riverPathWidth} route={route} />
       </View>
     </View>
   );
@@ -204,6 +317,7 @@ export default function SavedRoutesListWidget() {
   const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [userLoc, setUserLoc] = useState<{ lat: number; lon: number } | null>(null);
+  const [filterBarHeight, setFilterBarHeight] = useState(140);
 
   const loadRoutes = useCallback(async (options?: { showLoading?: boolean }) => {
     const showLoading = options?.showLoading ?? false;
@@ -281,15 +395,67 @@ export default function SavedRoutesListWidget() {
         style={styles.screen}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingTop: insets.top + 8, paddingBottom: insets.bottom + BottomTabInset + 24 },
+          {
+            paddingTop: filterBarHeight + 4,
+            paddingBottom: insets.bottom + BottomTabInset + 24,
+          },
         ]}
         showsVerticalScrollIndicator={false}>
+        <View style={styles.listBlock}>
+          {loading && <Text style={styles.statusText}>Загрузка…</Text>}
+
+          {!loading && routes.length === 0 && (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>Нет маршрутов</Text>
+              <Text style={styles.emptySubtitle}>
+                Создайте маршрут во вкладке «Построить» и нажмите «Начать».
+              </Text>
+              <Pressable
+                style={({ pressed }) => [styles.emptyBtn, pressed && styles.pressed]}
+                onPress={() => router.navigate('/explore')}>
+                <Text style={styles.emptyBtnText}>Построить маршрут</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {!loading && routes.length > 0 && filteredRoutes.length === 0 && (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>Ничего не найдено</Text>
+              <Text style={styles.emptySubtitle}>
+                {preset === 'nearby' && !userLoc
+                  ? 'Разрешите геолокацию для сортировки по расстоянию.'
+                  : 'Измените фильтр или поиск.'}
+              </Text>
+            </View>
+          )}
+
+          {!loading &&
+            filteredRoutes.map((route) => (
+              <View key={route.id} style={styles.cardGap}>
+                <HomeRouteCard
+                  route={route}
+                  onOpen={() => router.push(`/route-modal?routeId=${encodeURIComponent(route.id)}`)}
+                  onStart={() =>
+                    router.push({
+                      pathname: '/map',
+                      params: { savedRouteId: route.id },
+                    })
+                  }
+                />
+              </View>
+            ))}
+        </View>
+      </ScrollView>
+
+      <View
+        style={[styles.filterOverlay, { paddingTop: insets.top + 8 }]}
+        onLayout={(e) => setFilterBarHeight(e.nativeEvent.layout.height)}>
         <View style={styles.header}>
           <View style={styles.headerTop}>
             <Text style={styles.headerTitle}>Мои маршруты</Text>
             <Pressable
               style={({ pressed }) => [styles.headerIconBtn, pressed && styles.pressed]}
-              onPress={() => {}}>
+              onPress={() => { }}>
               <MaterialCommunityIcons name="account-outline" size={20} color={AppTheme.foreground} />
             </Pressable>
           </View>
@@ -325,52 +491,7 @@ export default function SavedRoutesListWidget() {
             />
           ) : null}
         </View>
-
-        <View style={styles.listBlock}>
-          {loading && <Text style={styles.statusText}>Загрузка…</Text>}
-
-          {!loading && routes.length === 0 && (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Нет маршрутов</Text>
-              <Text style={styles.emptySubtitle}>
-                Создайте маршрут во вкладке «Построить» и нажмите «Начать».
-              </Text>
-              <Pressable
-                style={({ pressed }) => [styles.emptyBtn, pressed && styles.pressed]}
-                onPress={() => router.navigate('/explore')}>
-                <Text style={styles.emptyBtnText}>Построить</Text>
-              </Pressable>
-            </View>
-          )}
-
-          {!loading && routes.length > 0 && filteredRoutes.length === 0 && (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Ничего не найдено</Text>
-              <Text style={styles.emptySubtitle}>
-                {preset === 'nearby' && !userLoc
-                  ? 'Разрешите геолокацию для сортировки по расстоянию.'
-                  : 'Измените фильтр или поиск.'}
-              </Text>
-            </View>
-          )}
-
-          {!loading &&
-            filteredRoutes.map((route) => (
-              <View key={route.id} style={styles.cardGap}>
-                <HomeRouteCard
-                  route={route}
-                  onOpen={() => router.push(`/route-modal?routeId=${encodeURIComponent(route.id)}`)}
-                  onStart={() =>
-                    router.push({
-                      pathname: '/map',
-                      params: { savedRouteId: route.id },
-                    })
-                  }
-                />
-              </View>
-            ))}
-        </View>
-      </ScrollView>
+      </View>
     </View>
   );
 }
@@ -382,18 +503,29 @@ const styles = StyleSheet.create({
   },
   screen: {
     flex: 1,
+    marginTop: 16,
+  },
+  filterOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    zIndex: 10,
+    paddingHorizontal: 16,
+    backgroundColor: AppTheme.background,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: AppTheme.border,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 8,
   },
   scrollContent: {
     paddingHorizontal: 16,
   },
   header: {
-    backgroundColor: AppTheme.background,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: AppTheme.border,
     paddingBottom: 12,
-    marginHorizontal: -16,
-    paddingHorizontal: 16,
-    marginBottom: 12,
   },
   headerTop: {
     flexDirection: 'row',

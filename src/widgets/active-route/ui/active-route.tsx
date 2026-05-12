@@ -535,9 +535,9 @@ export default function ActiveRouteWidget() {
         />
       )}
       <View style={styles.infoPanel}>
-        {!hasAnySelectedPoints && (
+        {/* {!hasAnySelectedPoints && (
           <Text style={styles.statusText}>Выберите старт и финиш во вкладке «Построить» и нажмите «Начать»</Text>
-        )}
+        )} */}
         {loading && <Text style={styles.statusText}>{loadingStatus ?? 'Строим маршрут...'}</Text>}
         {savedRouteLoading && <Text style={styles.statusText}>Загружаем сохраненный маршрут...</Text>}
         {!loading && !!error && <Text style={styles.errorText}>Ошибка: {error}</Text>}
@@ -571,7 +571,7 @@ export default function ActiveRouteWidget() {
                 pressed && styles.exploreButtonPressed,
               ]}
               onPress={() => router.navigate('/explore')}>
-              <Text style={styles.exploreButtonText}>Открыть «Построить»</Text>
+              <Text style={styles.exploreButtonText}>Построить маршрут</Text>
             </Pressable>
           </>
         )}
@@ -621,7 +621,7 @@ const styles = StyleSheet.create({
   statusText: {
     color: AppTheme.foreground,
     fontSize: 17,
-    fontWeight: '700',
+    fontWeight: '400',
     marginBottom: 8,
     textAlign: 'center',
   },

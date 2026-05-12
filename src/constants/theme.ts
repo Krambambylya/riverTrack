@@ -1,20 +1,14 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
- */
+
 
 import '@/global.css';
 
 import { Platform } from 'react-native';
 
-/**
- * Единая палитра приложения (Figma Make — главный экран RiverTrack, theme.css).
- * Используйте в StyleSheet и в нативных картах для согласованного вида.
- */
 export const AppTheme = {
   background: '#1E1E1E',
   foreground: '#FFFFFF',
   card: '#2C2C2E',
+  red: '#D93A3A',
   primary: '#2B7A4B',
   primaryForeground: '#FFFFFF',
   secondary: '#3A3A3C',
