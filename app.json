@@ -4,14 +4,14 @@
     "slug": "RiverTrack",
     "version": "1.0.1",
     "orientation": "portrait",
-    "icon": "./assets/images/logoApp.png",
+    "icon": "./assets/images/logoApp.jpg",
     "scheme": "rivertrack",
     "userInterfaceStyle": "automatic",
     "androidStatusBar": {
       "barStyle": "dark-content"
     },
     "ios": {
-      "icon": "./assets/images/logoApp.png",
+      "icon": "./assets/images/logoApp.jpg",
       "bundleIdentifier": "com.krambambylya.RiverTrack",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
@@ -20,16 +20,16 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/logoApp.png",
-        "backgroundImage": "./assets/images/logoApp.png",
-        "monochromeImage": "./assets/images/logoApp.png"
+        "foregroundImage": "./assets/images/logoApp.jpg",
+        "backgroundImage": "./assets/images/logoApp.jpg",
+        "monochromeImage": "./assets/images/logoApp.jpg"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.krambambylya.RiverTrack"
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/logoApp.png"
+      "favicon": "./assets/images/logoApp.jpg"
     },
     "plugins": [
       "expo-router",
@@ -37,16 +37,16 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#ffffff",
-          "image": "./assets/images/logoApp.png",
+          "image": "./assets/images/logoApp.jpg",
           "resizeMode": "cover",
           "imageWidth": 288,
           "android": {
-            "image": "./assets/images/logoApp.png",
+            "image": "./assets/images/logoApp.jpg",
             "resizeMode": "cover",
             "imageWidth": 288
           },
           "ios": {
-            "image": "./assets/images/logoApp.png",
+            "image": "./assets/images/logoApp.jpg",
             "resizeMode": "cover"
           }
         }
