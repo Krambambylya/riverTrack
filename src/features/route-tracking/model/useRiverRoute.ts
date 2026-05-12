@@ -36,6 +36,7 @@ type UseRiverRouteResult = {
   rivers: string[];
   loading: boolean;
   error: string | null;
+  loadingStatus: string | null;
 };
 
 const OVERPASS_URLS = [
@@ -43,6 +44,7 @@ const OVERPASS_URLS = [
   'https://overpass.kumi.systems/api/interpreter',
   'https://lz4.overpass-api.de/api/interpreter',
 ];
+const OVERPASS_REQUEST_TIMEOUT_MS = 9000;
 
 const MAX_DISTANCE = 30000;
 const DEBOUNCE_MS = 400;
@@ -75,7 +77,10 @@ const buildBBox = (start: LatLon, end: LatLon): string => {
 const overpassCache = new Map<string, OverpassResponse>();
 const routeCache = new Map<string, { route: RoutePoint[]; rivers: string[] }>();
 
-const fetchRiverData = async (bbox: string): Promise<OverpassResponse> => {
+const fetchRiverData = async (
+  bbox: string,
+  onStatus?: (status: string) => void
+): Promise<OverpassResponse> => {
   if (overpassCache.has(bbox)) return overpassCache.get(bbox)!;
 
   const query = `
@@ -88,19 +93,36 @@ const fetchRiverData = async (bbox: string): Promise<OverpassResponse> => {
   out skel qt;
   `;
 
-  for (const url of OVERPASS_URLS) {
+  for (let index = 0; index < OVERPASS_URLS.length; index += 1) {
+    const url = OVERPASS_URLS[index];
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
     try {
-      const response = await fetch(url, { method: 'POST', body: query });
-      if (!response.ok) continue;
+      onStatus?.(`Запрашиваем данные рек (${index + 1}/${OVERPASS_URLS.length})...`);
+      const controller = new AbortController();
+      timeoutId = setTimeout(() => controller.abort(), OVERPASS_REQUEST_TIMEOUT_MS);
+      const response = await fetch(url, { method: 'POST', body: query, signal: controller.signal });
+      if (!response.ok) {
+        onStatus?.(
+          `Сервер карт не ответил (${index + 1}/${OVERPASS_URLS.length}), пробуем другой...`
+        );
+        continue;
+      }
       const data = await response.json();
       overpassCache.set(bbox, data);
       return data;
     } catch (error) {
-      // try next endpoint
+      const isTimeout = error instanceof Error && error.name === 'AbortError';
+      onStatus?.(
+        isTimeout
+          ? `Сервер не ответил за ${Math.round(OVERPASS_REQUEST_TIMEOUT_MS / 1000)} c, переключаемся...`
+          : `Ошибка сети (${index + 1}/${OVERPASS_URLS.length}), повторяем...`
+      );
+    } finally {
+      if (timeoutId) clearTimeout(timeoutId);
     }
   }
 
-  throw new Error('Overpass unavailable');
+  throw new Error('Сервис данных рек временно недоступен');
 };
 
 const buildGraph = (data: OverpassResponse): Graph => {
@@ -193,11 +215,16 @@ const aStar = (graph: Graph, startId: number, endId: number): number[] => {
 const simplify = (points: RoutePoint[], step = 2): RoutePoint[] =>
   points.filter((_, index) => index % step === 0);
 
-export const useRiverRoute = (start: LatLon | null, end: LatLon | null): UseRiverRouteResult => {
+export const useRiverRoute = (
+  start: LatLon | null,
+  end: LatLon | null,
+  retryToken = 0
+): UseRiverRouteResult => {
   const [route, setRoute] = useState<RoutePoint[]>([]);
   const [rivers, setRivers] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
@@ -206,14 +233,16 @@ export const useRiverRoute = (start: LatLon | null, end: LatLon | null): UseRive
       setRivers([]);
       setLoading(false);
       setError(null);
+      setLoadingStatus(null);
       return;
     }
 
     if (distance(start, end) > MAX_DISTANCE) {
-      setError('Route too long (>30km)');
+      setError('Маршрут слишком длинный (более 30 км)');
       setRoute([]);
       setRivers([]);
       setLoading(false);
+      setLoadingStatus(null);
       return;
     }
 
@@ -226,6 +255,7 @@ export const useRiverRoute = (start: LatLon | null, end: LatLon | null): UseRive
       setRivers(cached.rivers);
       setLoading(false);
       setError(null);
+      setLoadingStatus('Маршрут загружен из кэша.');
       return;
     }
 
@@ -234,24 +264,32 @@ export const useRiverRoute = (start: LatLon | null, end: LatLon | null): UseRive
     setRivers([]);
     setLoading(true);
     setError(null);
+    setLoadingStatus('Подготавливаем запрос маршрута...');
 
     debounceRef.current = setTimeout(() => {
       let cancelled = false;
 
       const run = async () => {
         try {
+          if (!cancelled) setLoadingStatus('Собираем область маршрута...');
           const bbox = buildBBox(start, end);
-          const data = await fetchRiverData(bbox);
+          const data = await fetchRiverData(bbox, (status) => {
+            if (!cancelled) setLoadingStatus(status);
+          });
+          if (!cancelled) setLoadingStatus('Строим граф рек...');
           const graph = buildGraph(data);
+          if (!cancelled) setLoadingStatus('Ищем ближайшие точки старта и финиша...');
           const startNode = findNearestNode(graph, start);
           const endNode = findNearestNode(graph, end);
 
           if (!startNode || !endNode) {
             setRoute([]);
             setRivers([]);
+            setLoadingStatus('Не нашли ближайшие точки воды для маршрута.');
             return;
           }
 
+          if (!cancelled) setLoadingStatus('Прокладываем путь по руслам...');
           const path = aStar(graph, startNode, endNode);
           const usedRivers = new Set<string>();
           for (let i = 0; i < path.length - 1; i++) {
@@ -265,6 +303,7 @@ export const useRiverRoute = (start: LatLon | null, end: LatLon | null): UseRive
             latitude: graph[id].lat,
             longitude: graph[id].lon,
           }));
+          if (!cancelled) setLoadingStatus('Оптимизируем маршрут для карты...');
           polyline = simplify(polyline, 2);
 
           if (!cancelled) {
@@ -272,15 +311,19 @@ export const useRiverRoute = (start: LatLon | null, end: LatLon | null): UseRive
             routeCache.set(cacheKey, { route: polyline, rivers: riversFromPath });
             setRoute(polyline);
             setRivers(riversFromPath);
+            setLoadingStatus('Маршрут успешно построен.');
           }
         } catch (requestError: any) {
           if (!cancelled) {
-            setError(requestError.message || 'Route error');
+            setError(requestError.message || 'Ошибка построения маршрута');
             setRoute([]);
             setRivers([]);
+            setLoadingStatus('Ошибка при построении маршрута.');
           }
         } finally {
-          if (!cancelled) setLoading(false);
+          if (!cancelled) {
+            setLoading(false);
+          }
         }
       };
 
@@ -290,7 +333,7 @@ export const useRiverRoute = (start: LatLon | null, end: LatLon | null): UseRive
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [start, end]);
+  }, [start, end, retryToken]);
 
-  return { route, rivers, loading, error };
+  return { route, rivers, loading, error, loadingStatus };
 };

@@ -1,20 +1,17 @@
-import { BottomTabInset } from '@/constants/theme';
 import { setPendingRouteSelection } from '@/entities/route';
 import { MAPLIBRE_OSM_STYLE } from '@/shared/config/maplibre-osm-style';
 import * as Location from 'expo-location';
 import { AppleMaps } from 'expo-maps';
 import { router } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const FALLBACK_CENTER = { latitude: 48.67, longitude: 45.29 };
 
 export default function RouteConstructorWidget() {
   const MapLibre = Platform.OS === 'android' ? require('@maplibre/maplibre-react-native') : null;
-  const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  const isInlineCoordinates = width >= 360;
   const [startLat, setStartLat] = useState('');
   const [startLon, setStartLon] = useState('');
   const [finishLat, setFinishLat] = useState('');
@@ -44,7 +41,7 @@ export default function RouteConstructorWidget() {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude,
         });
-      } catch (error) {
+      } catch {
         // keep fallback center
       }
     })();
@@ -78,6 +75,7 @@ export default function RouteConstructorWidget() {
       finishLonNum <= 180;
     return isInRange;
   }, [finishLat, finishLatNum, finishLon, finishLonNum, startLat, startLatNum, startLon, startLonNum]);
+
   const hasStartPoint = useMemo(
     () =>
       startLat.trim().length > 0 &&
@@ -140,8 +138,6 @@ export default function RouteConstructorWidget() {
       return true;
     };
 
-    // MapLibre can emit either a GeoJSON feature (MapView.onPress)
-    // or an event payload shape from source/layer handlers.
     const directFeatureCoords = event?.geometry?.coordinates;
     if (Array.isArray(directFeatureCoords) && directFeatureCoords.length >= 2) {
       const [longitude, latitude] = directFeatureCoords;
@@ -186,6 +182,7 @@ export default function RouteConstructorWidget() {
       features,
     };
   }, [finishLat, finishLon, hasFinishPoint, hasStartPoint, startLat, startLon]);
+
   const useCurrentLocationAsStart = async () => {
     try {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -203,46 +200,16 @@ export default function RouteConstructorWidget() {
         latitude: Number(nextLat),
         longitude: Number(nextLon),
       });
-      // Force camera re-apply after programmatic center change.
       setCameraRevision((value) => value + 1);
       setSelectionMode('finish');
-    } catch (error) {
+    } catch {
       // keep current values
     }
   };
 
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={[
-        styles.container,
-        { paddingTop: insets.top + 12, paddingBottom: insets.bottom + BottomTabInset + 16 },
-      ]}>
-      <Text style={styles.title}>Создание водного маршрута</Text>
-      <Text style={styles.subtitle}>
-        Крупные кнопки и быстрый выбор: поставьте старт и финиш на карте.
-      </Text>
-
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Выбор точки на карте</Text>
-        <View style={styles.modeRow}>
-          <Pressable
-            style={[
-              styles.modeButton,
-              selectionMode === 'start' && styles.modeButtonActiveStart,
-            ]}
-            onPress={() => setSelectionMode('start')}>
-            <Text style={styles.modeButtonText}>Точка старта</Text>
-          </Pressable>
-          <Pressable
-            style={[
-              styles.modeButton,
-              selectionMode === 'finish' && styles.modeButtonActiveFinish,
-            ]}
-            onPress={() => setSelectionMode('finish')}>
-            <Text style={styles.modeButtonText}>Точка финиша</Text>
-          </Pressable>
-        </View>
+    <View style={styles.root}>
+      <View style={styles.mapLayer}>
         {Platform.OS === 'android' && MapLibre ? (
           <MapLibre.MapView
             key={`route-constructor-map-${cameraRevision}`}
@@ -291,140 +258,94 @@ export default function RouteConstructorWidget() {
             markers={[
               ...(hasStartPoint
                 ? [
-                    {
-                      id: 'start',
-                      coordinates: {
-                        latitude: Number(startLat),
-                        longitude: Number(startLon),
-                      },
-                      title: 'Старт',
-                      tintColor: '#38B6FF',
+                  {
+                    id: 'start',
+                    coordinates: {
+                      latitude: Number(startLat),
+                      longitude: Number(startLon),
                     },
-                  ]
+                    title: 'Старт',
+                    tintColor: '#38B6FF',
+                  },
+                ]
                 : []),
               ...(hasFinishPoint
                 ? [
-                    {
-                      id: 'finish',
-                      coordinates: {
-                        latitude: Number(finishLat),
-                        longitude: Number(finishLon),
-                      },
-                      title: 'Финиш',
-                      tintColor: '#D93A3A',
+                  {
+                    id: 'finish',
+                    coordinates: {
+                      latitude: Number(finishLat),
+                      longitude: Number(finishLon),
                     },
-                  ]
+                    title: 'Финиш',
+                    tintColor: '#D93A3A',
+                  },
+                ]
                 : []),
             ]}
           />
         )}
       </View>
 
-      <View style={styles.card}>
-        <Text style={styles.sectionTitle}>Старт</Text>
+      <View style={[styles.topOverlay, { paddingTop: insets.top + 10 }]} pointerEvents="box-none">
+        <View style={styles.topPanel} pointerEvents="auto">
+          <View style={styles.modeRow}>
+            <Pressable
+              style={[styles.modeButton, selectionMode === 'start' && styles.modeButtonActiveStart]}
+              onPress={() => setSelectionMode('start')}>
+              <Text style={styles.modeButtonText}>Точка старта</Text>
+            </Pressable>
+            <Pressable
+              style={[styles.modeButton, selectionMode === 'finish' && styles.modeButtonActiveFinish]}
+              onPress={() => setSelectionMode('finish')}>
+              <Text style={styles.modeButtonText}>Точка финиша</Text>
+            </Pressable>
+          </View>
+          {/* <Pressable
+            style={({ pressed }) => [styles.secondaryButton, pressed && styles.secondaryButtonPressed]}
+            onPress={useCurrentLocationAsStart}>
+            <Text style={styles.secondaryButtonText}>Моё местоположение = старт</Text>
+          </Pressable> */}
+        </View>
+      </View>
+
+      <View style={[styles.bottomOverlay, { paddingBottom: 16 }]} pointerEvents="box-none">
         <Pressable
           style={({ pressed }) => [
-            styles.secondaryButton,
-            pressed && styles.secondaryButtonPressed,
-          ]}
-          onPress={useCurrentLocationAsStart}>
-          <Text style={styles.secondaryButtonText}>Моё местоположение = Старт</Text>
-        </Pressable>
-        <View style={[styles.coordinatesRow, isInlineCoordinates ? styles.inlineRow : styles.stackedRow]}>
-          <TextInput
-            style={[styles.input, isInlineCoordinates && styles.inlineInput]}
-            value={startLat}
-            onChangeText={setStartLat}
-            keyboardType="decimal-pad"
-            placeholder="Широта"
-            placeholderTextColor="#8A8A8A"
-          />
-          <TextInput
-            style={[styles.input, isInlineCoordinates && styles.inlineInput]}
-            value={startLon}
-            onChangeText={setStartLon}
-            keyboardType="decimal-pad"
-            placeholder="Долгота"
-            placeholderTextColor="#8A8A8A"
-          />
-        </View>
-
-        <Text style={styles.sectionTitle}>Финиш</Text>
-        <View style={[styles.coordinatesRow, isInlineCoordinates ? styles.inlineRow : styles.stackedRow]}>
-          <TextInput
-            style={[styles.input, isInlineCoordinates && styles.inlineInput]}
-            value={finishLat}
-            onChangeText={setFinishLat}
-            keyboardType="decimal-pad"
-            placeholder="Широта"
-            placeholderTextColor="#8A8A8A"
-          />
-          <TextInput
-            style={[styles.input, isInlineCoordinates && styles.inlineInput]}
-            value={finishLon}
-            onChangeText={setFinishLon}
-            keyboardType="decimal-pad"
-            placeholder="Долгота"
-            placeholderTextColor="#8A8A8A"
-          />
-        </View>
-
-        <Pressable
-          style={({ pressed }) => [
-            styles.button,
-            !canStartRoute && styles.buttonDisabled,
-            pressed && canStartRoute && styles.buttonPressed,
+            styles.startButton,
+            !canStartRoute && styles.startButtonDisabled,
+            pressed && canStartRoute && styles.startButtonPressed,
           ]}
           onPress={startNavigation}
           disabled={!canStartRoute}>
-          <Text style={styles.buttonText}>Старт маршрута</Text>
+          <Text style={[styles.startButtonText, !canStartRoute && styles.startButtonTextDisabled]}>Начать</Text>
         </Pressable>
-
-        {!canStartRoute && <Text style={styles.errorText}>Сначала задайте старт и финиш.</Text>}
-        {!canStartRoute && (
-          <Text style={styles.errorTextHint}>
-            Широта: -90..90, долгота: -180..180.
-          </Text>
-        )}
       </View>
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
+  root: {
     flex: 1,
     backgroundColor: '#061A35',
   },
-  container: {
-    backgroundColor: '#061A35',
-    paddingHorizontal: 20,
-    gap: 14,
+  mapLayer: {
+    ...StyleSheet.absoluteFillObject,
   },
-  title: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    marginBottom: 4,
+  map: {
+    width: '100%',
+    height: '100%',
   },
-  subtitle: {
-    fontSize: 17,
-    lineHeight: 24,
-    color: '#B5CCEE',
-    marginBottom: 16,
+  topOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 16,
   },
-  card: {
-    backgroundColor: '#0C2A52',
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: '#2A4F84',
-    padding: 18,
-    gap: 12,
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 4,
+  topPanel: {
+    gap: 10,
   },
   modeRow: {
     flexDirection: 'row',
@@ -432,108 +353,74 @@ const styles = StyleSheet.create({
   },
   modeButton: {
     flex: 1,
-    minHeight: 56,
+    minHeight: 48,
     borderRadius: 12,
     borderWidth: 1.5,
     borderColor: '#3A5E91',
-    paddingVertical: 12,
+    paddingVertical: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#133763',
+    backgroundColor: 'rgba(12, 42, 82, 0.92)',
   },
   modeButtonActiveStart: {
-    backgroundColor: '#1D4F85',
+    backgroundColor: 'rgba(29, 79, 133, 0.95)',
     borderColor: '#6CC4FF',
   },
   modeButtonActiveFinish: {
-    backgroundColor: '#5A2B2B',
+    backgroundColor: 'rgba(90, 43, 43, 0.95)',
     borderColor: '#FF7E7E',
   },
   modeButtonText: {
     color: '#E6F1FF',
     fontWeight: '700',
-    fontSize: 16,
+    fontSize: 15,
   },
-  map: {
-    height: 300,
+  secondaryButton: {
+    minHeight: 44,
+    backgroundColor: 'rgba(27, 77, 125, 0.92)',
     borderRadius: 12,
-    overflow: 'hidden',
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#E6F1FF',
-    marginTop: 6,
-  },
-  input: {
-    minHeight: 56,
     borderWidth: 1.5,
-    borderColor: '#4C6E9F',
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    fontSize: 18,
-    color: '#FFFFFF',
-    backgroundColor: '#12345E',
+    borderColor: '#82CCFF',
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
-  coordinatesRow: {
-    gap: 10,
+  secondaryButtonPressed: {
+    opacity: 0.85,
   },
-  inlineRow: {
-    flexDirection: 'row',
+  secondaryButtonText: {
+    color: '#D8ECFF',
+    fontSize: 15,
+    fontWeight: '700',
   },
-  stackedRow: {
-    flexDirection: 'column',
+  bottomOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 20,
+    paddingTop: 8,
   },
-  inlineInput: {
-    flex: 1,
-  },
-  button: {
-    marginTop: 14,
-    minHeight: 60,
+  startButton: {
+    minHeight: 56,
     backgroundColor: '#38B6FF',
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  buttonDisabled: {
+  startButtonDisabled: {
     backgroundColor: '#466E8C',
+    opacity: 0.65,
   },
-  buttonPressed: {
-    opacity: 0.85,
+  startButtonPressed: {
+    opacity: 0.88,
   },
-  secondaryButton: {
-    marginBottom: 6,
-    minHeight: 56,
-    backgroundColor: '#1B4D7D',
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: '#82CCFF',
-    paddingVertical: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  secondaryButtonPressed: {
-    opacity: 0.8,
-  },
-  secondaryButtonText: {
-    color: '#D8ECFF',
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  buttonText: {
+  startButtonText: {
     color: '#FFFFFF',
-    fontSize: 20,
+    fontSize: 18,
     fontWeight: '800',
   },
-  errorText: {
-    marginTop: 6,
-    color: '#FF9292',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  errorTextHint: {
-    color: '#FFADAD',
-    fontSize: 13,
+  startButtonTextDisabled: {
+    color: '#E0E8EF',
   },
 });

@@ -2,13 +2,16 @@
   "expo": {
     "name": "RiverTrack",
     "slug": "RiverTrack",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/logoApp.png",
     "scheme": "rivertrack",
     "userInterfaceStyle": "automatic",
+    "androidStatusBar": {
+      "barStyle": "dark-content"
+    },
     "ios": {
-      "icon": "./assets/expo.icon",
+      "icon": "./assets/images/logoApp.png",
       "bundleIdentifier": "com.krambambylya.RiverTrack",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
@@ -17,33 +20,41 @@
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "foregroundImage": "./assets/images/logoApp.png",
+        "backgroundImage": "./assets/images/logoApp.png",
+        "monochromeImage": "./assets/images/logoApp.png"
       },
       "predictiveBackGestureEnabled": false,
       "package": "com.krambambylya.RiverTrack"
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/logoApp.png"
     },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#208AEF",
+          "backgroundColor": "#ffffff",
+          "image": "./assets/images/logoApp.png",
+          "resizeMode": "cover",
+          "imageWidth": 288,
           "android": {
-            "image": "./assets/images/splash-icon.png",
-            "imageWidth": 76
+            "image": "./assets/images/logoApp.png",
+            "resizeMode": "cover",
+            "imageWidth": 288
+          },
+          "ios": {
+            "image": "./assets/images/logoApp.png",
+            "resizeMode": "cover"
           }
         }
       ],
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to track your kayaking route and show your position on the map."
+          "locationAlwaysAndWhenInUsePermission": "Разрешите $(PRODUCT_NAME) использовать геопозицию для отслеживания водного маршрута и показа вашего положения на карте."
         }
       ],
       [

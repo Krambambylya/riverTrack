@@ -36,6 +36,9 @@ yarn-error.*
 # typescript
 *.tsbuildinfo
 
+# local build artifacts (APK/AAB — не коммитить, лимит GitHub 100 MB)
+build/
+
 app-example
 
 # generated native folders

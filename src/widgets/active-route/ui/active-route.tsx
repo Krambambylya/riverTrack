@@ -89,7 +89,14 @@ export default function ActiveRouteWidget() {
   const [savedFinishPoint, setSavedFinishPoint] = useState<{ latitude: number; longitude: number } | null>(null);
   const [savedRouteLoading, setSavedRouteLoading] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'error'>('idle');
-  const { route: routePoints, rivers, loading, error } = useRiverRoute(routeStart, routeFinish);
+  const [locationStatusMessage, setLocationStatusMessage] = useState<string>('');
+  const [locationStatusError, setLocationStatusError] = useState(false);
+  const [routeRetryToken, setRouteRetryToken] = useState(0);
+  const { route: routePoints, rivers, loading, error, loadingStatus } = useRiverRoute(
+    routeStart,
+    routeFinish,
+    routeRetryToken
+  );
   const effectiveRoutePoints = resolvedSavedRouteId ? savedRoutePoints : routePoints;
   const routeCoordinates = useMemo(
     () => effectiveRoutePoints.map((point) => [point.longitude, point.latitude]),
@@ -134,6 +141,10 @@ export default function ActiveRouteWidget() {
   const effectiveStartPoint = startPoint ?? savedStartPoint;
   const effectiveFinishPoint = finishPoint ?? savedFinishPoint;
   const hasAnySelectedPoints = hasSelectedPoints || !!resolvedSavedRouteId;
+  const canRetryRouteLoading = !loading && !savedRouteLoading && !hasRoute && hasAnySelectedPoints && !!error;
+  const handleRetryRouteLoading = useCallback(() => {
+    setRouteRetryToken((current) => current + 1);
+  }, []);
   const routeIdentity = useMemo(() => {
     if (!hasRoute) return 'no-route';
     const first = effectiveRoutePoints[0];
@@ -250,16 +261,50 @@ export default function ActiveRouteWidget() {
     let subscription: Location.LocationSubscription | null = null;
     (async () => {
       if (loading || routeCoordinates.length < 2) return;
+      setLocationStatusError(false);
+      setLocationStatusMessage('Запрашиваем доступ к геолокации...');
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') return;
-      const initialLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
-      updateDistances(initialLocation.coords);
+      if (status !== 'granted') {
+        setLocationStatusError(true);
+        setLocationStatusMessage('Доступ к геолокации не получен. Разрешите доступ и повторите.');
+        return;
+      }
+      const maxAttempts = 3;
+      let initialLocation: Location.LocationObject | null = null;
+      for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+        try {
+          setLocationStatusError(false);
+          setLocationStatusMessage(
+            attempt === 1
+              ? 'Получаем текущие координаты...'
+              : `Не удалось получить координаты. Повтор ${attempt}/${maxAttempts}...`
+          );
+          initialLocation = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.Balanced,
+          });
+          break;
+        } catch {
+          if (attempt === maxAttempts) {
+            setLocationStatusError(false);
+            setLocationStatusMessage(
+              'Маршрут построен. Пока не удалось определить позицию, продолжаем попытки...'
+            );
+          }
+        }
+      }
       subscription = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 10 },
-        (location) => updateDistances(location.coords)
+        (location) => {
+          setLocationStatusError(false);
+          setLocationStatusMessage('Позиция обновляется каждые 5 секунд.');
+          updateDistances(location.coords);
+        }
       );
+      if (!initialLocation) return;
+      setLocationStatusError(false);
+      setLocationStatusMessage('Координаты получены. Включаем отслеживание движения...');
+      updateDistances(initialLocation.coords);
+      setLocationStatusMessage('Отслеживание маршрута активно.');
     })();
     return () => {
       if (subscription) subscription.remove();
@@ -271,6 +316,10 @@ export default function ActiveRouteWidget() {
       setDistanceCovered(0);
       setDistanceRemaining(0);
       progressAnim.setValue(0);
+      if (!loading) {
+        setLocationStatusError(false);
+        setLocationStatusMessage('');
+      }
     }
   }, [loading, hasRoute, progressAnim]);
 
@@ -486,18 +535,34 @@ export default function ActiveRouteWidget() {
       )}
       <View style={styles.infoPanel}>
         {!hasAnySelectedPoints && (
-          <Text style={styles.statusText}>Выберите старт и финиш в Explore и нажмите "Начать"</Text>
+          <Text style={styles.statusText}>Выберите старт и финиш во вкладке «Построить» и нажмите «Начать»</Text>
         )}
-        {loading && <Text style={styles.statusText}>Строим маршрут...</Text>}
+        {loading && <Text style={styles.statusText}>{loadingStatus ?? 'Строим маршрут...'}</Text>}
         {savedRouteLoading && <Text style={styles.statusText}>Загружаем сохраненный маршрут...</Text>}
         {!loading && !!error && <Text style={styles.errorText}>Ошибка: {error}</Text>}
+        {!loading && hasRoute && !!locationStatusMessage && (
+          <Text style={locationStatusError ? styles.errorText : styles.statusText}>{locationStatusMessage}</Text>
+        )}
         {!loading && hasAnySelectedPoints && !error && !hasRoute && (
           <Text style={styles.statusText}>Маршрут не найден</Text>
         )}
-        {!loading && !savedRouteLoading && !hasRoute && (
+        {canRetryRouteLoading && (
+          <>
+            <Text style={styles.statusText}>Не удалось получить координаты рек. Попробуйте снова.</Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.exploreButton,
+                pressed && styles.exploreButtonPressed,
+              ]}
+              onPress={handleRetryRouteLoading}>
+              <Text style={styles.exploreButtonText}>Повторить</Text>
+            </Pressable>
+          </>
+        )}
+        {!canRetryRouteLoading && !loading && !savedRouteLoading && !hasRoute && (
           <>
             <Text style={styles.statusText}>
-              Чтобы начать маршрут, выберите старт и финиш во вкладке Explore.
+              Чтобы начать маршрут, выберите старт и финиш во вкладке «Построить».
             </Text>
             <Pressable
               style={({ pressed }) => [
@@ -505,7 +570,7 @@ export default function ActiveRouteWidget() {
                 pressed && styles.exploreButtonPressed,
               ]}
               onPress={() => router.navigate('/explore')}>
-              <Text style={styles.exploreButtonText}>Открыть Explore</Text>
+              <Text style={styles.exploreButtonText}>Открыть «Построить»</Text>
             </Pressable>
           </>
         )}

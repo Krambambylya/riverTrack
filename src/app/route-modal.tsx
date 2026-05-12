@@ -137,149 +137,156 @@ export default function RouteModalScreen() {
 
   return (
     <View style={styles.screen}>
-      <ScrollView
-        contentContainerStyle={[
-          styles.container,
-          { paddingTop: 24, paddingBottom: insets.bottom + 16 },
-        ]}>
+      <Pressable style={styles.backdrop} onPress={() => router.back()} />
+      <View style={[styles.modalCard, { marginBottom: Math.max(insets.bottom, 12) }]}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.container}>
 
-        {loading && <Text style={styles.statusText}>Загрузка...</Text>}
+          {loading && <Text style={styles.statusText}>Загрузка...</Text>}
 
-        {!loading && !route && (
-          <View style={styles.emptyCard}>
-            <Text style={styles.emptyTitle}>Маршрут не найден</Text>
-            <Pressable style={styles.primaryButton} onPress={() => router.back()}>
-              <Text style={styles.primaryButtonText}>Назад</Text>
-            </Pressable>
-          </View>
-        )}
-
-        {!loading && route && (
-          <>
-            {editing ? (
-              <TextInput
-                style={styles.titleInput}
-                value={editingTitle}
-                onChangeText={setEditingTitle}
-                placeholder="Название маршрута"
-                placeholderTextColor="#8A8A8A"
-                autoFocus
-                returnKeyType="done"
-                selection={{ start: editingTitle.length, end: editingTitle.length }}
-                onBlur={confirmRename}
-                onSubmitEditing={confirmRename}
-              />
-            ) : (
-              <Pressable
-                onPress={() => {
-                  setEditing(true);
-                  setEditingTitle(route.title);
-                }}>
-                <Text style={styles.title}>{route.title}</Text>
-              </Pressable>
-            )}
-
-            <Text style={styles.meta}>
-              Старт: {route.start.lat.toFixed(5)}, {route.start.lon.toFixed(5)}
-            </Text>
-            <Text style={styles.meta}>
-              Финиш: {route.finish.lat.toFixed(5)}, {route.finish.lon.toFixed(5)}
-            </Text>
-            <Text style={styles.meta}>Реки: {route.rivers.join(', ') || 'Не определены'}</Text>
-            <Text style={styles.meta}>Дата: {formatDate(route.createdAt)}</Text>
-
-            {Platform.OS === 'android' && MapLibre ? (
-              <MapLibre.MapView style={styles.previewMap} mapStyle={MAPLIBRE_OSM_STYLE} logoEnabled={false}>
-                <MapLibre.Camera
-                  zoomLevel={previewCamera.zoom}
-                  centerCoordinate={androidCenterCoordinate}
-                  animationDuration={0}
-                />
-                {androidRouteLine && (
-                  <MapLibre.ShapeSource id="route-modal-line-source" shape={androidRouteLine}>
-                    <MapLibre.LineLayer
-                      id="route-modal-line-layer"
-                      style={{
-                        lineColor: '#38B6FF',
-                        lineWidth: 4,
-                      }}
-                    />
-                  </MapLibre.ShapeSource>
-                )}
-                {androidRoutePoints && (
-                  <MapLibre.ShapeSource id="route-modal-points-source" shape={androidRoutePoints}>
-                    <MapLibre.CircleLayer
-                      id="route-modal-points-layer"
-                      style={{
-                        circleRadius: 6,
-                        circleColor: [
-                          'match',
-                          ['get', 'role'],
-                          'start',
-                          '#38B6FF',
-                          'finish',
-                          '#D93A3A',
-                          '#FFFFFF',
-                        ],
-                        circleStrokeWidth: 2,
-                        circleStrokeColor: '#FFFFFF',
-                      }}
-                    />
-                  </MapLibre.ShapeSource>
-                )}
-              </MapLibre.MapView>
-            ) : (
-              <AppleMaps.View
-                style={styles.previewMap}
-                cameraPosition={previewCamera}
-                polylines={[
-                  {
-                    coordinates: route.route,
-                    color: '#38B6FF',
-                    width: 4,
-                  },
-                ]}
-                markers={[
-                  {
-                    id: 'start',
-                    coordinates: {
-                      latitude: route.start.lat,
-                      longitude: route.start.lon,
-                    },
-                    title: 'Старт',
-                    tintColor: '#38B6FF',
-                  },
-                  {
-                    id: 'finish',
-                    coordinates: {
-                      latitude: route.finish.lat,
-                      longitude: route.finish.lon,
-                    },
-                    title: 'Финиш',
-                    tintColor: '#D93A3A',
-                  },
-                ]}
-              />
-            )}
-
-            <View style={styles.actions}>
-              <Pressable
-                style={styles.primaryButton}
-                onPress={() =>
-                  router.replace({
-                    pathname: '/map',
-                    params: { savedRouteId: route.id },
-                  })
-                }>
-                <Text style={styles.primaryButtonText}>Продолжить маршрут</Text>
-              </Pressable>
-              <Pressable style={styles.deleteButton} onPress={removeRoute}>
-                <Text style={styles.deleteButtonText}>Удалить маршрут</Text>
+          {!loading && !route && (
+            <View style={styles.emptyCard}>
+              <Text style={styles.emptyTitle}>Маршрут не найден</Text>
+              <Pressable style={styles.primaryButton} onPress={() => router.back()}>
+                <Text style={styles.primaryButtonText}>Назад</Text>
               </Pressable>
             </View>
-          </>
-        )}
-      </ScrollView>
+          )}
+
+          {!loading && route && (
+            <>
+              <View style={styles.titleRow}>
+                {editing ? (
+                  <TextInput
+                    style={styles.titleInput}
+                    value={editingTitle}
+                    onChangeText={setEditingTitle}
+                    placeholder="Название маршрута"
+                    placeholderTextColor="#8A8A8A"
+                    autoFocus
+                    returnKeyType="done"
+                    selection={{ start: editingTitle.length, end: editingTitle.length }}
+                    onBlur={confirmRename}
+                    onSubmitEditing={confirmRename}
+                  />
+                ) : (
+                  <Pressable
+                    style={styles.titlePressable}
+                    onPress={() => {
+                      setEditing(true);
+                      setEditingTitle(route.title);
+                    }}>
+                    <Text style={styles.title}>{route.title}</Text>
+                  </Pressable>
+                )}
+                <Pressable style={styles.closeIconButton} onPress={() => router.back()}>
+                  <Text style={styles.closeIconText}>×</Text>
+                </Pressable>
+              </View>
+
+              <Text style={styles.meta}>
+                Старт: {route.start.lat.toFixed(5)}, {route.start.lon.toFixed(5)}
+              </Text>
+              <Text style={styles.meta}>
+                Финиш: {route.finish.lat.toFixed(5)}, {route.finish.lon.toFixed(5)}
+              </Text>
+              <Text style={styles.meta}>Реки: {route.rivers.join(', ') || 'Не определены'}</Text>
+              <Text style={styles.meta}>Дата: {formatDate(route.createdAt)}</Text>
+
+              {Platform.OS === 'android' && MapLibre ? (
+                <MapLibre.MapView style={styles.previewMap} mapStyle={MAPLIBRE_OSM_STYLE} logoEnabled={false}>
+                  <MapLibre.Camera
+                    zoomLevel={previewCamera.zoom}
+                    centerCoordinate={androidCenterCoordinate}
+                    animationDuration={0}
+                  />
+                  {androidRouteLine && (
+                    <MapLibre.ShapeSource id="route-modal-line-source" shape={androidRouteLine}>
+                      <MapLibre.LineLayer
+                        id="route-modal-line-layer"
+                        style={{
+                          lineColor: '#38B6FF',
+                          lineWidth: 4,
+                        }}
+                      />
+                    </MapLibre.ShapeSource>
+                  )}
+                  {androidRoutePoints && (
+                    <MapLibre.ShapeSource id="route-modal-points-source" shape={androidRoutePoints}>
+                      <MapLibre.CircleLayer
+                        id="route-modal-points-layer"
+                        style={{
+                          circleRadius: 6,
+                          circleColor: [
+                            'match',
+                            ['get', 'role'],
+                            'start',
+                            '#38B6FF',
+                            'finish',
+                            '#D93A3A',
+                            '#FFFFFF',
+                          ],
+                          circleStrokeWidth: 2,
+                          circleStrokeColor: '#FFFFFF',
+                        }}
+                      />
+                    </MapLibre.ShapeSource>
+                  )}
+                </MapLibre.MapView>
+              ) : (
+                <AppleMaps.View
+                  style={styles.previewMap}
+                  cameraPosition={previewCamera}
+                  polylines={[
+                    {
+                      coordinates: route.route,
+                      color: '#38B6FF',
+                      width: 4,
+                    },
+                  ]}
+                  markers={[
+                    {
+                      id: 'start',
+                      coordinates: {
+                        latitude: route.start.lat,
+                        longitude: route.start.lon,
+                      },
+                      title: 'Старт',
+                      tintColor: '#38B6FF',
+                    },
+                    {
+                      id: 'finish',
+                      coordinates: {
+                        latitude: route.finish.lat,
+                        longitude: route.finish.lon,
+                      },
+                      title: 'Финиш',
+                      tintColor: '#D93A3A',
+                    },
+                  ]}
+                />
+              )}
+
+              <View style={styles.actions}>
+                <Pressable
+                  style={styles.primaryButton}
+                  onPress={() =>
+                    router.replace({
+                      pathname: '/map',
+                      params: { savedRouteId: route.id },
+                    })
+                  }>
+                  <Text style={styles.primaryButtonText}>Продолжить маршрут</Text>
+                </Pressable>
+                <Pressable style={styles.deleteButton} onPress={removeRoute}>
+                  <Text style={styles.deleteButtonText}>Удалить маршрут</Text>
+                </Pressable>
+              </View>
+            </>
+          )}
+        </ScrollView>
+      </View>
     </View>
   );
 }
@@ -287,22 +294,35 @@ export default function RouteModalScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.85)',
+    justifyContent: 'flex-end',
+    paddingHorizontal: 12,
+    paddingTop: 72,
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  modalCard: {
+    paddingTop: 12,
+    maxHeight: '85%',
     backgroundColor: '#0C2A52',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#2A4F84',
+    overflow: 'hidden',
   },
   container: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 14,
+    paddingBottom: 14,
     gap: 10,
   },
-  closeButton: {
-    alignSelf: 'flex-end',
-    minHeight: 40,
-    paddingHorizontal: 12,
-    justifyContent: 'center',
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
   },
-  closeButtonText: {
-    color: '#B5CCEE',
-    fontSize: 16,
-    fontWeight: '700',
+  titlePressable: {
+    flex: 1,
   },
   statusText: {
     color: '#C7DAF5',
@@ -329,6 +349,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
   },
   titleInput: {
+    flex: 1,
     color: '#E6F1FF',
     fontSize: 24,
     fontWeight: '800',
@@ -340,6 +361,22 @@ const styles = StyleSheet.create({
   meta: {
     color: '#C7DAF5',
     fontSize: 15,
+  },
+  closeIconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#3B5F92',
+    backgroundColor: '#12345E',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  closeIconText: {
+    color: '#E6F1FF',
+    fontSize: 22,
+    lineHeight: 22,
+    fontWeight: '800',
   },
   previewMap: {
     height: 240,
@@ -376,7 +413,7 @@ const styles = StyleSheet.create({
   },
   deleteButtonText: {
     color: '#FFDADA',
-    fontSize: 15,
+    fontSize: 18,
     fontWeight: '700',
   },
 });

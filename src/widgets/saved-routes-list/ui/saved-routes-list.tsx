@@ -1,9 +1,13 @@
-import { SavedRoute, getSavedRoutes } from '@/entities/route';
 import { BottomTabInset } from '@/constants/theme';
+import { SavedRoute, getSavedRoutes } from '@/entities/route';
+import { Image } from 'expo-image';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// const BG_SVG = require('@/assets/images/bg.svg');
+const BG_SVG = require('@/assets/images/bg 2.png');
 
 export default function SavedRoutesListWidget() {
   const router = useRouter();
@@ -30,8 +34,6 @@ export default function SavedRoutesListWidget() {
 
   useFocusEffect(
     useCallback(() => {
-      // Первый заход: loading уже true; при возврате с модалки не трогаем loading —
-      // иначе весь экран моргает «Загрузка...».
       loadRoutes({ showLoading: false });
     }, [loadRoutes])
   );
@@ -50,6 +52,7 @@ export default function SavedRoutesListWidget() {
     routes.forEach((route) => route.rivers.forEach((river) => uniqueRivers.add(river)));
     return ['all', ...Array.from(uniqueRivers).sort((a, b) => a.localeCompare(b, 'ru-RU'))];
   }, [routes]);
+
   const filteredRoutes = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
     const base = routes.filter((route) => {
@@ -66,143 +69,159 @@ export default function SavedRoutesListWidget() {
     });
     return base;
   }, [routes, searchQuery, selectedRiver, sortOrder]);
+
   return (
-    <ScrollView
-      style={styles.screen}
-      contentContainerStyle={[
-        styles.container,
-        { paddingTop: insets.top + 12, paddingBottom: insets.bottom + BottomTabInset + 16 },
-      ]}>
-      <Text style={styles.title}>Сохраненные маршруты</Text>
-      <Text style={styles.subtitle}>Быстрый доступ к маршрутам для выхода на воду.</Text>
-      {!loading && routes.length > 0 && (
-        <View style={styles.filtersCard}>
-          <TextInput
-            style={styles.filterInput}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            placeholder="Поиск по названию или реке"
-            placeholderTextColor="#8FAED7"
-          />
-          <View style={styles.filterRow}>
+    <View style={styles.root}>
+      <Image source={BG_SVG} style={styles.bgImage} contentFit="cover" transition={0} />
+      <View style={styles.bgTint} pointerEvents="none" />
+      <ScrollView
+        style={styles.screen}
+        contentContainerStyle={[
+          styles.container,
+          { paddingTop: insets.top + 12, paddingBottom: insets.bottom + BottomTabInset + 16 },
+        ]}>
+        <Text style={styles.title}>Сохраненные маршруты</Text>
+        <Text style={styles.subtitle}>Быстрый доступ к маршрутам для выхода на воду без интернета.</Text>
+        {!loading && routes.length > 0 && (
+          <View style={styles.filtersCard}>
+            <TextInput
+              style={styles.filterInput}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholder="Поиск по названию или реке"
+              placeholderTextColor="#666666"
+            />
+            <View style={styles.filterRow}>
+              <Pressable
+                style={[
+                  styles.filterChip,
+                  sortOrder === 'newest' && styles.filterChipActive,
+                ]}
+                onPress={() => setSortOrder('newest')}>
+                <Text style={[styles.filterChipText, sortOrder === 'newest' && styles.filterChipTextActive]}>
+                  Сначала новые
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[
+                  styles.filterChip,
+                  sortOrder === 'oldest' && styles.filterChipActive,
+                ]}
+                onPress={() => setSortOrder('oldest')}>
+                <Text style={[styles.filterChipText, sortOrder === 'oldest' && styles.filterChipTextActive]}>
+                  Сначала старые
+                </Text>
+              </Pressable>
+            </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.riverChipsRow}>
+              {riverOptions.map((river) => {
+                const active = selectedRiver === river;
+                return (
+                  <Pressable
+                    key={river}
+                    style={[styles.riverChip, active && styles.riverChipActive]}
+                    onPress={() => setSelectedRiver(river)}>
+                    <Text style={[styles.riverChipText, active && styles.riverChipTextActive]}>
+                      {river === 'all' ? 'Все реки' : river}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
+        {loading && <Text style={styles.statusText}>Загрузка...</Text>}
+        {!loading && routes.length === 0 && (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>Маршрутов пока нет</Text>
+            <Text style={styles.emptySubtitle}>
+              Создайте маршрут во вкладке «Построить» и нажмите «Начать».
+            </Text>
             <Pressable
-              style={[
-                styles.filterChip,
-                sortOrder === 'newest' && styles.filterChipActive,
-              ]}
-              onPress={() => setSortOrder('newest')}>
-              <Text style={[styles.filterChipText, sortOrder === 'newest' && styles.filterChipTextActive]}>
-                Сначала новые
-              </Text>
-            </Pressable>
-            <Pressable
-              style={[
-                styles.filterChip,
-                sortOrder === 'oldest' && styles.filterChipActive,
-              ]}
-              onPress={() => setSortOrder('oldest')}>
-              <Text style={[styles.filterChipText, sortOrder === 'oldest' && styles.filterChipTextActive]}>
-                Сначала старые
-              </Text>
+              style={({ pressed }) => [styles.emptyActionButton, pressed && styles.continueButtonPressed]}
+              onPress={() => router.navigate('/explore')}>
+              <Text style={styles.emptyActionButtonText}>Перейти в «Построить»</Text>
             </Pressable>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.riverChipsRow}>
-            {riverOptions.map((river) => {
-              const active = selectedRiver === river;
-              return (
-                <Pressable
-                  key={river}
-                  style={[styles.riverChip, active && styles.riverChipActive]}
-                  onPress={() => setSelectedRiver(river)}>
-                  <Text style={[styles.riverChipText, active && styles.riverChipTextActive]}>
-                    {river === 'all' ? 'Все реки' : river}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </View>
-      )}
+        )}
+        {!loading && routes.length > 0 && filteredRoutes.length === 0 && (
+          <View style={styles.emptyCard}>
+            <Text style={styles.emptyTitle}>Ничего не найдено</Text>
+            <Text style={styles.emptySubtitle}>Измените фильтры или строку поиска.</Text>
+          </View>
+        )}
 
-      {loading && <Text style={styles.statusText}>Загрузка...</Text>}
-      {!loading && routes.length === 0 && (
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyTitle}>Маршрутов пока нет</Text>
-          <Text style={styles.emptySubtitle}>
-            Создайте маршрут во вкладке Explore и нажмите "Начать".
-          </Text>
-          <Pressable
-            style={({ pressed }) => [styles.emptyActionButton, pressed && styles.continueButtonPressed]}
-            onPress={() => router.navigate('/explore')}>
-            <Text style={styles.emptyActionButtonText}>Перейти в Explore</Text>
-          </Pressable>
-        </View>
-      )}
-      {!loading && routes.length > 0 && filteredRoutes.length === 0 && (
-        <View style={styles.emptyCard}>
-          <Text style={styles.emptyTitle}>Ничего не найдено</Text>
-          <Text style={styles.emptySubtitle}>Измените фильтры или строку поиска.</Text>
-        </View>
-      )}
-
-      {!loading &&
-        filteredRoutes.map((route) => (
-          <Pressable
-            key={route.id}
-            style={({ pressed }) => [styles.routeCard, pressed && styles.continueButtonPressed]}
-            onPress={() => router.push(`/route-modal?routeId=${encodeURIComponent(route.id)}`)}>
-            <View style={styles.routeHeaderRow}>
-              <Text style={styles.routeTitle}>{route.title}</Text>
-              <Text style={styles.routeDate}>{formatDate(route.createdAt)}</Text>
-            </View>
-            <Text style={styles.routeMeta}>Реки: {route.rivers.join(', ') || 'Не определены'}</Text>
-          </Pressable>
-        ))}
-    </ScrollView>
+        {!loading &&
+          filteredRoutes.map((route) => (
+            <Pressable
+              key={route.id}
+              style={({ pressed }) => [styles.routeCard, pressed && styles.continueButtonPressed]}
+              onPress={() => router.push(`/route-modal?routeId=${encodeURIComponent(route.id)}`)}>
+              <View style={styles.routeHeaderRow}>
+                <Text style={styles.routeTitle}>{route.title}</Text>
+                <Text style={styles.routeDate}>{formatDate(route.createdAt)}</Text>
+              </View>
+              <Text style={styles.routeMeta}>Реки: {route.rivers.join(', ') || 'Не определены'}</Text>
+            </Pressable>
+          ))}
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+    backgroundColor: '#fff',
+  },
+  bgImage: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  bgTint: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.35)',
+  },
   screen: {
     flex: 1,
-    backgroundColor: '#061A35',
+    backgroundColor: 'transparent',
   },
   container: {
-    backgroundColor: '#061A35',
+    backgroundColor: 'transparent',
     paddingHorizontal: 20,
     gap: 10,
   },
   title: {
     fontSize: 30,
     fontWeight: '800',
-    color: '#FFFFFF',
+    color: '#000000',
   },
   subtitle: {
-    color: '#B5CCEE',
+    color: '#1A1A1A',
     fontSize: 17,
     marginBottom: 8,
   },
   statusText: {
-    color: '#C7DAF5',
+    color: '#333333',
     fontSize: 16,
   },
   filtersCard: {
-    backgroundColor: '#0C2A52',
+    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#2A4F84',
+    borderColor: '#E0E0E0',
     padding: 10,
     gap: 8,
   },
   filterInput: {
     minHeight: 44,
     borderWidth: 1.5,
-    borderColor: '#4F79B0',
+    borderColor: '#CCCCCC',
     borderRadius: 10,
     paddingHorizontal: 12,
-    color: '#FFFFFF',
+    color: '#000000',
     fontSize: 15,
-    backgroundColor: '#12345E',
+    backgroundColor: '#F7F7F7',
   },
   filterRow: {
     flexDirection: 'row',
@@ -212,24 +231,24 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 40,
     borderRadius: 9,
-    backgroundColor: '#12345E',
+    backgroundColor: '#F0F0F0',
     borderWidth: 1,
-    borderColor: '#3B5F92',
+    borderColor: '#D0D0D0',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 8,
   },
   filterChipActive: {
-    backgroundColor: '#38B6FF',
-    borderColor: '#38B6FF',
+    backgroundColor: '#E3F2FD',
+    borderColor: '#1976D2',
   },
   filterChipText: {
-    color: '#CDE3FF',
+    color: '#000000',
     fontWeight: '700',
     fontSize: 13,
   },
   filterChipTextActive: {
-    color: '#FFFFFF',
+    color: '#000000',
   },
   riverChipsRow: {
     gap: 6,
@@ -241,40 +260,40 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: '#3B5F92',
-    backgroundColor: '#12345E',
+    borderColor: '#D0D0D0',
+    backgroundColor: '#F0F0F0',
   },
   riverChipActive: {
-    backgroundColor: '#1D4F85',
-    borderColor: '#6CC4FF',
+    backgroundColor: '#E3F2FD',
+    borderColor: '#1976D2',
   },
   riverChipText: {
-    color: '#CDE3FF',
+    color: '#000000',
     fontWeight: '700',
     fontSize: 13,
   },
   riverChipTextActive: {
-    color: '#E6FFE8',
+    color: '#000000',
   },
   emptyCard: {
-    backgroundColor: '#0C2A52',
+    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#2A4F84',
+    borderColor: '#E0E0E0',
     padding: 18,
     shadowColor: '#000',
-    shadowOpacity: 0.18,
+    shadowOpacity: 0.08,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
   emptyTitle: {
-    color: '#E6F1FF',
+    color: '#000000',
     fontSize: 22,
     fontWeight: '800',
   },
   emptySubtitle: {
-    color: '#B5CCEE',
+    color: '#333333',
     fontSize: 16,
     lineHeight: 22,
     marginTop: 6,
@@ -282,26 +301,28 @@ const styles = StyleSheet.create({
   emptyActionButton: {
     marginTop: 14,
     minHeight: 58,
-    backgroundColor: '#38B6FF',
+    backgroundColor: '#FFFFFF',
     borderRadius: 14,
+    borderWidth: 2,
+    borderColor: '#000000',
     paddingVertical: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   emptyActionButtonText: {
-    color: '#FFFFFF',
+    color: '#000000',
     fontSize: 18,
     fontWeight: '800',
   },
   routeCard: {
-    backgroundColor: '#0C2A52',
+    backgroundColor: '#FFFFFF',
     borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#2A4F84',
+    borderColor: '#E0E0E0',
     padding: 18,
     gap: 6,
     shadowColor: '#000',
-    shadowOpacity: 0.18,
+    shadowOpacity: 0.08,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 2 },
     elevation: 2,
@@ -313,18 +334,18 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   routeTitle: {
-    color: '#E6F1FF',
+    color: '#000000',
     fontSize: 22,
     fontWeight: '800',
     marginBottom: 4,
   },
   routeDate: {
-    color: '#95B9E8',
+    color: '#444444',
     fontSize: 14,
     fontWeight: '700',
   },
   routeMeta: {
-    color: '#C7DAF5',
+    color: '#333333',
     fontSize: 16,
   },
   continueButtonPressed: {
