@@ -19,10 +19,36 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Circle, Path } from 'react-native-svg';
+import Svg, { Circle, Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
+
+function YearSectionHeader({ year }: { year: number }) {
+  const rawId = React.useId().replace(/[^a-zA-Z0-9_-]/g, '');
+  const fillId = `yearHdr-${rawId}`;
+
+  return (
+    <View style={styles.yearHeader}>
+      <Svg
+        pointerEvents="none"
+        style={StyleSheet.absoluteFill}
+        width="100%"
+        height="100%"
+        preserveAspectRatio="none">
+        <Defs>
+          <LinearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
+            <Stop offset="0" stopColor={AppTheme.background} stopOpacity={1} />
+            <Stop offset="0.45" stopColor={AppTheme.background} stopOpacity={0.55} />
+            <Stop offset="1" stopColor={AppTheme.background} stopOpacity={0} />
+          </LinearGradient>
+        </Defs>
+        <Rect width="100%" height="100%" fill={`url(#${fillId})`} />
+      </Svg>
+      <Text style={styles.yearHeaderText}>{year}</Text>
+    </View>
+  );
+}
 
 const RIVER_VIEW_W = 300;
-/** Высота viewBox: больше — маршрут не «сплющен» по вертикали на карточке */
+
 const RIVER_VIEW_H = 100;
 const RIVER_PAD = 6;
 const RIVER_MAX_POINTS = 96;
@@ -168,10 +194,10 @@ const PRESET_LABELS: { id: PresetFilter; label: string }[] = [
   { id: 'oldest', label: 'Сначала старые' },
 ];
 
-function sortRoutesByUpdatedAt(routes: SavedRoute[], direction: 'asc' | 'desc'): SavedRoute[] {
+function sortRoutesByCreatedAt(routes: SavedRoute[], direction: 'asc' | 'desc'): SavedRoute[] {
   return [...routes].sort((a, b) => {
-    const ta = new Date(a.updatedAt).getTime();
-    const tb = new Date(b.updatedAt).getTime();
+    const ta = new Date(a.createdAt).getTime();
+    const tb = new Date(b.createdAt).getTime();
     const cmp = ta - tb;
     return direction === 'desc' ? -cmp : cmp;
   });
@@ -382,7 +408,7 @@ export default function SavedRoutesListWidget() {
     try {
       const savedRoutes = await getSavedRoutes();
       const sorted = [...savedRoutes].sort(
-        (a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       setRoutes(sorted);
     } finally {
@@ -447,9 +473,9 @@ export default function SavedRoutesListWidget() {
         return da - db;
       });
     } else if (preset === 'oldest') {
-      list = sortRoutesByUpdatedAt(list, 'asc');
+      list = sortRoutesByCreatedAt(list, 'asc');
     } else {
-      list = sortRoutesByUpdatedAt(list, 'desc');
+      list = sortRoutesByCreatedAt(list, 'desc');
     }
 
     return list;
@@ -459,8 +485,8 @@ export default function SavedRoutesListWidget() {
     if (filteredRoutes.length === 0) return [];
     const byYear = new Map<number, SavedRoute[]>();
     for (const route of filteredRoutes) {
-      const t = new Date(route.updatedAt).getTime();
-      const year = Number.isFinite(t) ? new Date(route.updatedAt).getFullYear() : new Date().getFullYear();
+      const t = new Date(route.createdAt).getTime();
+      const year = Number.isFinite(t) ? new Date(route.createdAt).getFullYear() : new Date().getFullYear();
       if (!byYear.has(year)) byYear.set(year, []);
       byYear.get(year)!.push(route);
     }
@@ -494,11 +520,7 @@ export default function SavedRoutesListWidget() {
             keyExtractor={(item) => item.id}
             stickySectionHeadersEnabled
             showsVerticalScrollIndicator={false}
-            renderSectionHeader={({ section }) => (
-              <View style={styles.yearHeader}>
-                <Text style={styles.yearHeaderText}>{section.year}</Text>
-              </View>
-            )}
+            renderSectionHeader={({ section }) => <YearSectionHeader year={section.year} />}
             renderItem={({ item }) => (
               <View style={styles.cardGap}>
                 <HomeRouteCard
@@ -559,11 +581,11 @@ export default function SavedRoutesListWidget() {
         <View style={styles.header}>
           <View style={styles.headerTop}>
             <Text style={styles.headerTitle}>Мои маршруты</Text>
-            <Pressable
+            {/* <Pressable
               style={({ pressed }) => [styles.headerIconBtn, pressed && styles.pressed]}
               onPress={() => { }}>
               <MaterialCommunityIcons name="account-outline" size={20} color={AppTheme.foreground} />
-            </Pressable>
+            </Pressable> */}
           </View>
 
           <View style={styles.chipsRow}>
@@ -607,7 +629,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   yearHeader: {
-    backgroundColor: AppTheme.background,
+    position: 'relative',
+    overflow: 'hidden',
     paddingTop: 6,
     paddingBottom: 12,
     alignItems: 'center',
@@ -621,6 +644,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     textAlign: 'center',
     width: '100%',
+    zIndex: 1,
   },
   listEmptyInner: {
     paddingTop: 8,
