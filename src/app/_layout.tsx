@@ -1,17 +1,16 @@
+import { AppTheme } from '@/constants/theme';
+import { AppStatusBar } from '@/shared/ui/app-status-bar';
+import { AnimatedSplashOverlay } from '@/shared/ui/animated-icon';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
 import React from 'react';
 import { useColorScheme } from 'react-native';
-
-import { AppTheme } from '@/constants/theme';
-import { AnimatedSplashOverlay } from '@/shared/ui/animated-icon';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   return (
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <StatusBar style="light" />
+      <AppStatusBar />
       <AnimatedSplashOverlay />
       <Stack
         screenOptions={{

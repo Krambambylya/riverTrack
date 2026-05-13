@@ -1,6 +1,7 @@
 import { AppTheme } from '@/constants/theme';
 import { setPendingRouteSelection } from '@/entities/route';
 import { MAPLIBRE_OSM_STYLE } from '@/shared/config/maplibre-osm-style';
+import { getReliableCurrentPositionAsync } from '@/shared/lib/get-reliable-current-position';
 import * as Location from 'expo-location';
 import { AppleMaps } from 'expo-maps';
 import { router } from 'expo-router';
@@ -58,9 +59,7 @@ export default function RouteConstructorWidget() {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') return;
 
-        const position = await Location.getCurrentPositionAsync({
-          accuracy: Location.Accuracy.Balanced,
-        });
+        const position = await getReliableCurrentPositionAsync();
         if (!active) return;
 
         const next = {
@@ -224,9 +223,7 @@ export default function RouteConstructorWidget() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') return;
 
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      });
+      const position = await getReliableCurrentPositionAsync();
       const nextLat = String(Number(position.coords.latitude).toFixed(6));
       const nextLon = String(Number(position.coords.longitude).toFixed(6));
 

@@ -10,6 +10,7 @@ import {
 } from '@/entities/route';
 import { useRiverRoute } from '@/features/route-tracking';
 import { MAPLIBRE_OSM_STYLE } from '@/shared/config/maplibre-osm-style';
+import { getReliableCurrentPositionAsync } from '@/shared/lib/get-reliable-current-position';
 import * as turf from '@turf/turf';
 import * as Location from 'expo-location';
 import { AppleMaps } from 'expo-maps';
@@ -280,9 +281,7 @@ export default function ActiveRouteWidget() {
               ? 'Получаем текущие координаты...'
               : `Не удалось получить координаты. Повтор ${attempt}/${maxAttempts}...`
           );
-          initialLocation = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.Balanced,
-          });
+          initialLocation = await getReliableCurrentPositionAsync();
           break;
         } catch {
           if (attempt === maxAttempts) {
@@ -294,7 +293,13 @@ export default function ActiveRouteWidget() {
         }
       }
       subscription = await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 10 },
+        {
+          accuracy:
+            Platform.OS === 'android' ? Location.Accuracy.Low : Location.Accuracy.Balanced,
+          timeInterval: 5000,
+          distanceInterval: 10,
+          mayShowUserSettingsDialog: true,
+        },
         (location) => {
           setLocationStatusError(false);
           setLocationStatusMessage('Позиция обновляется каждые 5 секунд.');

@@ -1,15 +1,17 @@
 import { AppTheme, BottomTabInset } from '@/constants/theme';
-import { getSavedRoutes, SavedRoute, type RoutePoint } from '@/entities/route';
+import { getSavedRoutes, SavedRoute, setSavedRouteFavorited, type RoutePoint } from '@/entities/route';
+import { getReliableCurrentPositionAsync } from '@/shared/lib/get-reliable-current-position';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { lineString } from '@turf/helpers';
 import length from '@turf/length';
 import * as Location from 'expo-location';
 import { useFocusEffect, useRouter } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Image,
   Pressable,
   ScrollView,
+  SectionList,
   StyleSheet,
   Text,
   TextInput,
@@ -24,6 +26,9 @@ const RIVER_VIEW_W = 300;
 const RIVER_VIEW_H = 100;
 const RIVER_PAD = 6;
 const RIVER_MAX_POINTS = 96;
+
+const STAR_ICON_LIGHT = require('@/assets/images/icons/star/light/star.png');
+const STAR_ICON_GREEN = require('@/assets/images/icons/star/green/star.png');
 
 function decimateRoutePoints(pts: RoutePoint[], max: number): RoutePoint[] {
   if (pts.length <= max) return pts;
@@ -148,14 +153,29 @@ function RiverPathSvg({ widthPx, route }: { widthPx: number; route: SavedRoute }
   );
 }
 
-type PresetFilter = 'all' | 'popular' | 'recent' | 'nearby';
+type PresetFilter = 'all' | 'favorites' | 'newest' | 'oldest' | 'nearby';
+
+type RoutesYearSection = {
+  year: number;
+  data: SavedRoute[];
+};
 
 const PRESET_LABELS: { id: PresetFilter; label: string }[] = [
   { id: 'all', label: 'Все' },
-  { id: 'popular', label: 'Популярные' },
-  { id: 'recent', label: 'Недавние' },
+  { id: 'favorites', label: 'Избранные' },
   { id: 'nearby', label: 'Ближайшие ко мне' },
+  { id: 'newest', label: 'Сначала новые' },
+  { id: 'oldest', label: 'Сначала старые' },
 ];
+
+function sortRoutesByUpdatedAt(routes: SavedRoute[], direction: 'asc' | 'desc'): SavedRoute[] {
+  return [...routes].sort((a, b) => {
+    const ta = new Date(a.updatedAt).getTime();
+    const tb = new Date(b.updatedAt).getTime();
+    const cmp = ta - tb;
+    return direction === 'desc' ? -cmp : cmp;
+  });
+}
 
 function formatListDate(iso: string): string {
   const d = new Date(iso);
@@ -190,12 +210,16 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
 
 function HomeRouteCard({
   route,
+  favorited,
   onOpen,
   onStart,
+  onToggleFavorite,
 }: {
   route: SavedRoute;
+  favorited: boolean;
   onOpen: () => void;
   onStart: () => void;
+  onToggleFavorite: () => void;
 }) {
   const { width: windowWidth } = useWindowDimensions();
   const riverPathWidth = Math.max(160, windowWidth - 64);
@@ -210,7 +234,7 @@ function HomeRouteCard({
             {route.title}
           </Text>
           <Text style={cardStyles.rivers} numberOfLines={1}>
-            {route.rivers.length > 0 ? route.rivers.join(', ') : 'Река не указана'}
+            Реки: {route.rivers.length > 0 ? route.rivers.join(', ') : 'Река не указана'}
           </Text>
           <View style={cardStyles.metaRow}>
             <View style={cardStyles.metaItem}>
@@ -223,11 +247,24 @@ function HomeRouteCard({
             </View>
           </View>
         </Pressable>
-        <Pressable
-          style={({ pressed }) => [cardStyles.startBtn, pressed && cardStyles.startBtnPressed]}
-          onPress={onStart}>
-          <Text style={cardStyles.startBtnText}>Старт</Text>
-        </Pressable>
+        <View style={cardStyles.actionsCol}>
+          <Pressable
+            style={({ pressed }) => [cardStyles.startBtn, pressed && cardStyles.startBtnPressed]}
+            onPress={onStart}>
+            <Text style={cardStyles.startBtnText}>Старт</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={favorited ? 'Убрать из избранного' : 'В избранное'}
+            style={({ pressed }) => [cardStyles.starBtn, pressed && cardStyles.starBtnPressed]}
+            onPress={onToggleFavorite}>
+            <Image
+              source={favorited ? STAR_ICON_GREEN : STAR_ICON_LIGHT}
+              style={cardStyles.starIcon}
+              resizeMode="contain"
+            />
+          </Pressable>
+        </View>
       </View>
       <View style={cardStyles.riverViz}>
         <RiverPathSvg widthPx={riverPathWidth} route={route} />
@@ -299,6 +336,27 @@ const cardStyles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
+  actionsCol: {
+    gap: 8,
+    alignItems: 'stretch',
+    flexShrink: 0,
+  },
+  starBtn: {
+    minHeight: 44,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    borderRadius: 8,
+    backgroundColor: 'transparent',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  starBtnPressed: {
+    opacity: 0.75,
+  },
+  starIcon: {
+    width: 26,
+    height: 26,
+  },
   riverViz: {
     marginTop: 16,
     paddingTop: 16,
@@ -314,7 +372,6 @@ export default function SavedRoutesListWidget() {
   const [routes, setRoutes] = useState<SavedRoute[]>([]);
   const [loading, setLoading] = useState(true);
   const [preset, setPreset] = useState<PresetFilter>('all');
-  const [searchVisible, setSearchVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [userLoc, setUserLoc] = useState<{ lat: number; lon: number } | null>(null);
   const [filterBarHeight, setFilterBarHeight] = useState(140);
@@ -333,6 +390,13 @@ export default function SavedRoutesListWidget() {
     }
   }, []);
 
+  const handleToggleFavorite = useCallback(async (id: string, next: boolean) => {
+    const updated = await setSavedRouteFavorited(id, next);
+    if (updated) {
+      setRoutes((prev) => prev.map((r) => (r.id === id ? updated : r)));
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       loadRoutes({ showLoading: false });
@@ -348,7 +412,7 @@ export default function SavedRoutesListWidget() {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted' || cancelled) return;
-        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const pos = await getReliableCurrentPositionAsync();
         if (!cancelled) {
           setUserLoc({ lat: pos.coords.latitude, lon: pos.coords.longitude });
         }
@@ -363,19 +427,9 @@ export default function SavedRoutesListWidget() {
 
   const filteredRoutes = useMemo(() => {
     let list = [...routes];
-    const now = Date.now();
-    const monthMs = 30 * 24 * 60 * 60 * 1000;
 
-    if (preset === 'popular') {
-      list = list.filter((r) => r.rivers.length >= 2);
-    } else if (preset === 'recent') {
-      list = list.filter((r) => now - new Date(r.updatedAt).getTime() <= monthMs);
-    } else if (preset === 'nearby' && userLoc) {
-      list = [...list].sort((a, b) => {
-        const da = haversineKm(userLoc.lat, userLoc.lon, a.start.lat, a.start.lon);
-        const db = haversineKm(userLoc.lat, userLoc.lon, b.start.lat, b.start.lon);
-        return da - db;
-      });
+    if (preset === 'favorites') {
+      list = list.filter((r) => r.favorited);
     }
 
     const q = searchQuery.trim().toLowerCase();
@@ -385,67 +439,119 @@ export default function SavedRoutesListWidget() {
         return hay.includes(q);
       });
     }
+
+    if (preset === 'nearby' && userLoc) {
+      list = [...list].sort((a, b) => {
+        const da = haversineKm(userLoc.lat, userLoc.lon, a.start.lat, a.start.lon);
+        const db = haversineKm(userLoc.lat, userLoc.lon, b.start.lat, b.start.lon);
+        return da - db;
+      });
+    } else if (preset === 'oldest') {
+      list = sortRoutesByUpdatedAt(list, 'asc');
+    } else {
+      list = sortRoutesByUpdatedAt(list, 'desc');
+    }
+
     return list;
   }, [routes, preset, searchQuery, userLoc]);
 
+  const routeSections = useMemo((): RoutesYearSection[] => {
+    if (filteredRoutes.length === 0) return [];
+    const byYear = new Map<number, SavedRoute[]>();
+    for (const route of filteredRoutes) {
+      const t = new Date(route.updatedAt).getTime();
+      const year = Number.isFinite(t) ? new Date(route.updatedAt).getFullYear() : new Date().getFullYear();
+      if (!byYear.has(year)) byYear.set(year, []);
+      byYear.get(year)!.push(route);
+    }
+    return [...byYear.entries()]
+      .sort((a, b) => b[0] - a[0])
+      .map(([year, data]) => ({ year, data }));
+  }, [filteredRoutes]);
+
+  const listBottomPadding = insets.bottom + BottomTabInset + 24;
+
   return (
     <View style={styles.root}>
-      <StatusBar style="light" />
-      <ScrollView
-        style={styles.screen}
-        contentContainerStyle={[
-          styles.scrollContent,
-          {
-            paddingTop: filterBarHeight + 4,
-            paddingBottom: insets.bottom + BottomTabInset + 24,
-          },
-        ]}
-        showsVerticalScrollIndicator={false}>
-        <View style={styles.listBlock}>
-          {loading && <Text style={styles.statusText}>Загрузка…</Text>}
-
-          {!loading && routes.length === 0 && (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Нет маршрутов</Text>
-              <Text style={styles.emptySubtitle}>
-                Создайте маршрут во вкладке «Построить» и нажмите «Начать».
-              </Text>
-              <Pressable
-                style={({ pressed }) => [styles.emptyBtn, pressed && styles.pressed]}
-                onPress={() => router.navigate('/explore')}>
-                <Text style={styles.emptyBtnText}>Построить маршрут</Text>
-              </Pressable>
-            </View>
-          )}
-
-          {!loading && routes.length > 0 && filteredRoutes.length === 0 && (
-            <View style={styles.emptyCard}>
-              <Text style={styles.emptyTitle}>Ничего не найдено</Text>
-              <Text style={styles.emptySubtitle}>
-                {preset === 'nearby' && !userLoc
-                  ? 'Разрешите геолокацию для сортировки по расстоянию.'
-                  : 'Измените фильтр или поиск.'}
-              </Text>
-            </View>
-          )}
-
-          {!loading &&
-            filteredRoutes.map((route) => (
-              <View key={route.id} style={styles.cardGap}>
+      {loading ? (
+        <ScrollView
+          style={styles.screen}
+          contentContainerStyle={[
+            styles.scrollContent,
+            {
+              paddingTop: filterBarHeight + 4,
+              paddingBottom: listBottomPadding,
+            },
+          ]}
+          showsVerticalScrollIndicator={false}>
+          <Text style={styles.statusText}>Загрузка…</Text>
+        </ScrollView>
+      ) : (
+        <View style={[styles.listViewport, { paddingTop: filterBarHeight + 4 }]}>
+          <SectionList
+            style={styles.screen}
+            sections={routeSections}
+            keyExtractor={(item) => item.id}
+            stickySectionHeadersEnabled
+            showsVerticalScrollIndicator={false}
+            renderSectionHeader={({ section }) => (
+              <View style={styles.yearHeader}>
+                <Text style={styles.yearHeaderText}>{section.year}</Text>
+              </View>
+            )}
+            renderItem={({ item }) => (
+              <View style={styles.cardGap}>
                 <HomeRouteCard
-                  route={route}
-                  onOpen={() => router.push(`/route-modal?routeId=${encodeURIComponent(route.id)}`)}
+                  route={item}
+                  favorited={!!item.favorited}
+                  onOpen={() => router.push(`/route-modal?routeId=${encodeURIComponent(item.id)}`)}
                   onStart={() =>
                     router.push({
                       pathname: '/map',
-                      params: { savedRouteId: route.id },
+                      params: { savedRouteId: item.id },
                     })
                   }
+                  onToggleFavorite={() => void handleToggleFavorite(item.id, !item.favorited)}
                 />
               </View>
-            ))}
+            )}
+            ListEmptyComponent={
+              <View style={styles.listEmptyInner}>
+                {routes.length === 0 ? (
+                  <>
+                    <View style={styles.emptyCard}>
+                      <Text style={styles.emptyTitle}>Нет маршрутов</Text>
+                      <Text style={styles.emptySubtitle}>
+                        Создайте маршрут во вкладке «Построить» и нажмите «Начать».
+                      </Text>
+                      <Pressable
+                        style={({ pressed }) => [styles.emptyBtn, pressed && styles.pressed]}
+                        onPress={() => router.navigate('/explore')}>
+                        <Text style={styles.emptyBtnText}>Построить маршрут</Text>
+                      </Pressable>
+                    </View>
+                  </>
+                ) : (
+                  <View style={styles.emptyCard}>
+                    <Text style={styles.emptyTitle}>Ничего не найдено</Text>
+                    <Text style={styles.emptySubtitle}>
+                      {preset === 'nearby' && !userLoc
+                        ? 'Разрешите геолокацию для сортировки по расстоянию.'
+                        : preset === 'favorites'
+                          ? 'Отметьте маршруты звёздочкой под кнопкой «Старт».'
+                          : 'Измените фильтр или поиск.'}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            }
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: listBottomPadding, flexGrow: 1 },
+            ]}
+          />
         </View>
-      </ScrollView>
+      )}
 
       <View
         style={[styles.filterOverlay, { paddingTop: insets.top + 8 }]}
@@ -473,23 +579,16 @@ export default function SavedRoutesListWidget() {
                   </Pressable>
                 );
               })}
-              <Pressable
-                style={({ pressed }) => [styles.chipIcon, pressed && styles.pressed]}
-                onPress={() => setSearchVisible((v) => !v)}>
-                <MaterialCommunityIcons name="tune-vertical" size={18} color={AppTheme.foreground} />
-              </Pressable>
             </ScrollView>
           </View>
 
-          {searchVisible ? (
-            <TextInput
-              style={styles.searchInput}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Поиск по названию или реке"
-              placeholderTextColor={AppTheme.mutedForeground}
-            />
-          ) : null}
+          <TextInput
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            placeholder="Поиск по названию или реке"
+            placeholderTextColor={AppTheme.mutedForeground}
+          />
         </View>
       </View>
     </View>
@@ -503,7 +602,28 @@ const styles = StyleSheet.create({
   },
   screen: {
     flex: 1,
-    marginTop: 16,
+  },
+  listViewport: {
+    flex: 1,
+  },
+  yearHeader: {
+    backgroundColor: AppTheme.background,
+    paddingTop: 6,
+    paddingBottom: 12,
+    alignItems: 'center',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: AppTheme.border,
+  },
+  yearHeaderText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: AppTheme.mutedForeground,
+    letterSpacing: 1.2,
+    textAlign: 'center',
+    width: '100%',
+  },
+  listEmptyInner: {
+    paddingTop: 8,
   },
   filterOverlay: {
     position: 'absolute',
@@ -575,15 +695,6 @@ const styles = StyleSheet.create({
     color: AppTheme.primaryForeground,
     fontWeight: '600',
   },
-  chipIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: AppTheme.card,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginLeft: 4,
-  },
   searchInput: {
     marginTop: 12,
     minHeight: 44,
@@ -592,9 +703,6 @@ const styles = StyleSheet.create({
     backgroundColor: AppTheme.inputBackground,
     color: AppTheme.foreground,
     fontSize: 15,
-  },
-  listBlock: {
-    gap: 12,
   },
   cardGap: {
     marginBottom: 12,

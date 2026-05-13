@@ -82,6 +82,7 @@ export const upsertSavedRoute = async (input: {
     route: input.route,
     createdAt: now,
     updatedAt: now,
+    favorited: false,
   };
   await writeRoutes([created, ...routes]);
   return created;
@@ -107,6 +108,20 @@ export const renameSavedRoute = async (id: string, title: string): Promise<Saved
   const updated: SavedRoute = {
     ...target,
     title: trimmedTitle,
+    updatedAt: new Date().toISOString(),
+  };
+  const nextRoutes = routes.map((route) => (route.id === id ? updated : route));
+  await writeRoutes(nextRoutes);
+  return updated;
+};
+
+export const setSavedRouteFavorited = async (id: string, favorited: boolean): Promise<SavedRoute | null> => {
+  const routes = await getSavedRoutes();
+  const target = routes.find((route) => route.id === id);
+  if (!target) return null;
+  const updated: SavedRoute = {
+    ...target,
+    favorited,
     updatedAt: new Date().toISOString(),
   };
   const nextRoutes = routes.map((route) => (route.id === id ? updated : route));

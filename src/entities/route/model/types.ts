@@ -17,4 +17,6 @@ export type SavedRoute = {
   route: RoutePoint[];
   createdAt: string;
   updatedAt: string;
+  /** Избранный маршрут (показ в фильтре «Избранные»). */
+  favorited?: boolean;
 };

@@ -1,11 +1,39 @@
 import { AppTheme } from '@/constants/theme';
-import { deleteSavedRoute, getSavedRouteById, renameSavedRoute } from '@/entities/route';
+import { deleteSavedRoute, getSavedRouteById, renameSavedRoute, type SavedRoute } from '@/entities/route';
 import { MAPLIBRE_OSM_STYLE } from '@/shared/config/maplibre-osm-style';
 import { AppleMaps } from 'expo-maps';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import {
+  Platform,
+  Pressable,
+  ScrollView,
+  Share,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+function buildRouteShareMessage(route: SavedRoute): string {
+  const lines: string[] = [
+    'RiverTrack — водный маршрут',
+    '',
+    `Название: ${route.title}`,
+    '',
+    `Старт: ${route.start.lat.toFixed(5)}, ${route.start.lon.toFixed(5)}`,
+    '',
+    `Финиш: ${route.finish.lat.toFixed(5)}, ${route.finish.lon.toFixed(5)}`,
+    '',
+    `Реки: ${route.rivers.length > 0 ? route.rivers.join(', ') : 'не определены'}`,
+  ];
+  if (route.favorited) {
+    lines.push('', 'Избранное: да');
+  }
+  lines.push('', `Идентификатор: ${route.id}`);
+  return lines.join('\n');
+}
 
 export default function RouteModalScreen() {
   const MapLibre = Platform.OS === 'android' ? require('@maplibre/maplibre-react-native') : null;
@@ -136,6 +164,16 @@ export default function RouteModalScreen() {
     router.back();
   };
 
+  const shareRoute = async () => {
+    if (!route) return;
+    const message = buildRouteShareMessage(route);
+    try {
+      await Share.share({ message, title: route.title });
+    } catch {
+      // отмена пользователем или недоступный share
+    }
+  };
+
   return (
     <View style={styles.screen}>
       <Pressable style={styles.backdrop} onPress={() => router.back()} />
@@ -168,7 +206,6 @@ export default function RouteModalScreen() {
                     placeholderTextColor={AppTheme.mutedForeground}
                     autoFocus
                     returnKeyType="done"
-                    selection={{ start: editingTitle.length, end: editingTitle.length }}
                     onBlur={confirmRename}
                     onSubmitEditing={confirmRename}
                   />
@@ -281,9 +318,20 @@ export default function RouteModalScreen() {
                   }>
                   <Text style={styles.primaryButtonText}>Продолжить маршрут</Text>
                 </Pressable>
-                <Pressable style={styles.deleteButton} onPress={removeRoute}>
-                  <Text style={styles.deleteButtonText}>Удалить маршрут</Text>
-                </Pressable>
+                <View style={styles.shareDeleteRow}>
+                  <Pressable
+                    style={({ pressed }) => [styles.shareButton, pressed && styles.shareButtonPressed]}
+                    onPress={() => void shareRoute()}>
+                    <Text style={styles.shareButtonText} numberOfLines={1}>
+                      Поделиться
+                    </Text>
+                  </Pressable>
+                  <Pressable style={styles.deleteButton} onPress={removeRoute}>
+                    <Text style={styles.deleteButtonText} numberOfLines={1}>
+                      Удалить
+                    </Text>
+                  </Pressable>
+                </View>
               </View>
             </>
           )}
@@ -390,6 +438,32 @@ const styles = StyleSheet.create({
     marginTop: 6,
     gap: 10,
   },
+  shareDeleteRow: {
+    flexDirection: 'row',
+    gap: 10,
+    alignItems: 'stretch',
+  },
+  shareButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: AppTheme.secondary,
+    borderWidth: 1,
+    borderColor: AppTheme.borderStrong,
+  },
+  shareButtonPressed: {
+    opacity: 0.88,
+  },
+  shareButtonText: {
+    color: AppTheme.foreground,
+    fontSize: 16,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
   primaryButton: {
     minHeight: 56,
     backgroundColor: AppTheme.primary,
@@ -405,17 +479,19 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   deleteButton: {
-    minHeight: 56,
+    flex: 1,
+    minHeight: 48,
     backgroundColor: AppTheme.deleteBackground,
     borderRadius: 12,
-    paddingVertical: 11,
-    paddingHorizontal: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
     justifyContent: 'center',
     alignItems: 'center',
   },
   deleteButtonText: {
     color: AppTheme.deleteForeground,
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '700',
+    textAlign: 'center',
   },
 });
