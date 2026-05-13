@@ -22,7 +22,7 @@ export const AppTheme = {
   mapPointStart: '#6BCB9A',
   mapPointFinish: '#D93A3A',
   mapUserOrLineBlue: '#4A9FD8',
-  mapUserLocation: '#4CD964',
+  mapUserLocation: '#4A9FD8',
   errorSoft: '#FF9A9A',
   deleteBackground: '#5A2E2E',
   deleteForeground: '#FFDADA',

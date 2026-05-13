@@ -11,12 +11,69 @@ import {
 import { useRiverRoute } from '@/features/route-tracking';
 import { MAPLIBRE_OSM_STYLE } from '@/shared/config/maplibre-osm-style';
 import { getReliableCurrentPositionAsync } from '@/shared/lib/get-reliable-current-position';
+import type { CameraStop } from '@maplibre/maplibre-react-native';
 import * as turf from '@turf/turf';
 import * as Location from 'expo-location';
 import { AppleMaps } from 'expo-maps';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+
+/** Пульс изолирован: не дергает state родителя, чтобы жесты MapLibre не залипали. */
+const ActiveRouteUserPulseLayer = memo(function ActiveRouteUserPulseLayer({
+  mapLibre,
+  userLocationPoint,
+}: {
+  mapLibre: Record<string, unknown>;
+  userLocationPoint: { latitude: number; longitude: number };
+}) {
+  const M = mapLibre as {
+    ShapeSource: React.ComponentType<Record<string, unknown>>;
+    CircleLayer: React.ComponentType<Record<string, unknown>>;
+  };
+  const [ring, setRing] = useState({ radius: 10, opacity: 0.45 });
+
+  const shape = useMemo(
+    () =>
+      ({
+        type: 'Feature' as const,
+        properties: {},
+        geometry: {
+          type: 'Point' as const,
+          coordinates: [userLocationPoint.longitude, userLocationPoint.latitude],
+        },
+      }) as const,
+    [userLocationPoint.latitude, userLocationPoint.longitude]
+  );
+
+  useEffect(() => {
+    const id = setInterval(() => {
+      const phase = (Date.now() % 2200) / 2200;
+      setRing({
+        radius: 8 + phase * 30,
+        opacity: 0.52 * (1 - phase) * (1 - phase),
+      });
+    }, 100);
+    return () => clearInterval(id);
+  }, [userLocationPoint.latitude, userLocationPoint.longitude]);
+
+  return (
+    <M.ShapeSource id="active-user-pulse-source" shape={shape}>
+      <M.CircleLayer
+        id="active-user-pulse-layer"
+        style={{
+          circleRadius: ring.radius,
+          circleColor: AppTheme.mapUserOrLineBlue,
+          circleOpacity: ring.opacity,
+          circlePitchAlignment: 'map',
+        }}
+      />
+    </M.ShapeSource>
+  );
+});
+
+/** В dev: точка на этой доле длины маршрута вместо GPS. `null` — выключено. */
+const FAKE_ROUTE_PROGRESS_FOR_TEST: number | null = __DEV__ ? 0.73 : null;
 
 export default function ActiveRouteWidget() {
   const MapLibre = Platform.OS === 'android' ? require('@maplibre/maplibre-react-native') : null;
@@ -153,8 +210,9 @@ export default function ActiveRouteWidget() {
     const last = effectiveRoutePoints[effectiveRoutePoints.length - 1];
     return `${effectiveRoutePoints.length}:${first.latitude},${first.longitude}:${last.latitude},${last.longitude}`;
   }, [effectiveRoutePoints, hasRoute]);
+  /** iOS AppleMaps: центр/зум по bbox маршрута. Зависит только от маршрута, не от каждого тика GPS. */
   const cameraPosition = useMemo(() => {
-    if (hasRoute) {
+    if (hasRoute && effectiveRoutePoints.length > 1) {
       const latitudes = effectiveRoutePoints.map((point) => point.latitude);
       const longitudes = effectiveRoutePoints.map((point) => point.longitude);
       const minLat = Math.min(...latitudes);
@@ -185,11 +243,46 @@ export default function ActiveRouteWidget() {
       coordinates: effectiveStartPoint ?? { latitude: 48.67, longitude: 45.29 },
       zoom: 14,
     };
-  }, [effectiveRoutePoints, effectiveStartPoint, hasRoute]);
-  const cameraCenterCoordinate = useMemo(
-    () => [cameraPosition.coordinates.longitude, cameraPosition.coordinates.latitude],
-    [cameraPosition]
-  );
+  }, [effectiveStartPoint, hasRoute, routeIdentity]); // eslint-disable-line react-hooks/exhaustive-deps -- bbox по routeIdentity; effectiveRoutePoints меняет ссылку каждый рендер
+
+  /**
+   * MapLibre.Camera на каждом изменении props шлёт новый stop в натив; нестабильные массивы/объекты
+   * держали центр и мешали панорамированию. Здесь один стабильный stop на смену маршрута; без маршрута — старт/дефолт.
+   */
+  const androidCameraStop = useMemo((): CameraStop => {
+    const panelBottomPad = Platform.OS === 'android' ? 200 : 220;
+    if (hasRoute && effectiveRoutePoints.length > 1) {
+      const latitudes = effectiveRoutePoints.map((p) => p.latitude);
+      const longitudes = effectiveRoutePoints.map((p) => p.longitude);
+      const minLat = Math.min(...latitudes);
+      const maxLat = Math.max(...latitudes);
+      const minLon = Math.min(...longitudes);
+      const maxLon = Math.max(...longitudes);
+      const latPad = Math.max((maxLat - minLat) * 0.1, 0.002);
+      const lonPad = Math.max((maxLon - minLon) * 0.1, 0.002);
+      return {
+        bounds: {
+          ne: [maxLon + lonPad, maxLat + latPad],
+          sw: [minLon - lonPad, minLat - latPad],
+          paddingTop: 56,
+          paddingBottom: panelBottomPad,
+          paddingLeft: 20,
+          paddingRight: 20,
+        },
+        animationDuration: 0,
+        animationMode: 'moveTo',
+      };
+    }
+    const lat = effectiveStartPoint?.latitude ?? 48.67;
+    const lon = effectiveStartPoint?.longitude ?? 45.29;
+    return {
+      centerCoordinate: [lon, lat],
+      zoomLevel: 14,
+      animationDuration: 0,
+      animationMode: 'moveTo',
+    };
+  }, [effectiveStartPoint?.latitude, effectiveStartPoint?.longitude, hasRoute, routeIdentity]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const androidRouteLine = useMemo(
     () => ({
       type: 'Feature' as const,
@@ -263,6 +356,8 @@ export default function ActiveRouteWidget() {
     let subscription: Location.LocationSubscription | null = null;
     (async () => {
       if (loading || routeCoordinates.length < 2) return;
+      if (FAKE_ROUTE_PROGRESS_FOR_TEST != null) return;
+
       setLocationStatusError(false);
       setLocationStatusMessage('Запрашиваем доступ к геолокации...');
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -336,6 +431,28 @@ export default function ActiveRouteWidget() {
     setDistanceRemaining(0);
     progressAnim.setValue(0);
   }, [progressAnim, routeIdentity]);
+
+  useEffect(() => {
+    if (FAKE_ROUTE_PROGRESS_FOR_TEST == null) return;
+    if (loading || routeCoordinates.length < 2 || totalDistance <= 0) return;
+    const line = turf.lineString(routeCoordinates);
+    const kmAlong = Math.min(
+      totalDistance * FAKE_ROUTE_PROGRESS_FOR_TEST,
+      totalDistance * 0.999999
+    );
+    const pt = turf.along(line, kmAlong, { units: 'kilometers' });
+    const [lon, lat] = pt.geometry.coordinates;
+    const fakeCoords: Location.LocationObjectCoords = {
+      latitude: lat,
+      longitude: lon,
+      altitude: null,
+      accuracy: 12,
+      altitudeAccuracy: null,
+      heading: null,
+      speed: 0,
+    };
+    updateDistances(fakeCoords);
+  }, [loading, routeCoordinates, routeIdentity, totalDistance, updateDistances]);
 
   useEffect(() => {
     let active = true;
@@ -459,11 +576,7 @@ export default function ActiveRouteWidget() {
     <View style={styles.container}>
       {Platform.OS === 'android' && MapLibre ? (
         <MapLibre.MapView style={styles.map} mapStyle={MAPLIBRE_OSM_STYLE} logoEnabled={false}>
-          <MapLibre.Camera
-            zoomLevel={cameraPosition.zoom}
-            centerCoordinate={cameraCenterCoordinate}
-            animationDuration={0}
-          />
+          <MapLibre.Camera {...androidCameraStop} />
           {hasRoute && (
             <MapLibre.ShapeSource id="active-route-line-source" shape={androidRouteLine}>
               <MapLibre.LineLayer
@@ -475,6 +588,9 @@ export default function ActiveRouteWidget() {
               />
             </MapLibre.ShapeSource>
           )}
+          {/* {userLocationPoint && (
+            <ActiveRouteUserPulseLayer mapLibre={MapLibre} userLocationPoint={userLocationPoint} />
+          )} */}
           {androidRouteMarkers.features.length > 0 && (
             <MapLibre.ShapeSource id="active-route-points-source" shape={androidRouteMarkers}>
               <MapLibre.CircleLayer
@@ -489,7 +605,7 @@ export default function ActiveRouteWidget() {
                     'finish',
                     AppTheme.mapPointFinish,
                     'user',
-                    AppTheme.mapUserLocation,
+                    AppTheme.mapUserOrLineBlue,
                     AppTheme.foreground,
                   ],
                   circleStrokeWidth: 2,
@@ -503,7 +619,7 @@ export default function ActiveRouteWidget() {
         <AppleMaps.View
           style={styles.map}
           cameraPosition={cameraPosition}
-          properties={{ isMyLocationEnabled: true }}
+          properties={{ isMyLocationEnabled: false }}
           polylines={
             hasRoute
               ? [
@@ -533,6 +649,16 @@ export default function ActiveRouteWidget() {
                   coordinates: effectiveFinishPoint,
                   title: 'Финиш',
                   tintColor: AppTheme.mapPointFinish,
+                },
+              ]
+              : []),
+            ...(userLocationPoint
+              ? [
+                {
+                  id: 'user',
+                  coordinates: userLocationPoint,
+                  title: 'Вы здесь',
+                  tintColor: AppTheme.mapUserOrLineBlue,
                 },
               ]
               : []),
