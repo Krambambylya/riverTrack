@@ -12,7 +12,10 @@ import { useRiverRoute } from '@/features/route-tracking';
 import { MAPLIBRE_OSM_STYLE } from '@/shared/config/maplibre-osm-style';
 import { getReliableCurrentPositionAsync } from '@/shared/lib/get-reliable-current-position';
 import type { CameraStop } from '@maplibre/maplibre-react-native';
-import * as turf from '@turf/turf';
+import along from '@turf/along';
+import { lineString, point } from '@turf/helpers';
+import length from '@turf/length';
+import nearestPointOnLine from '@turf/nearest-point-on-line';
 import * as Location from 'expo-location';
 import { AppleMaps } from 'expo-maps';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -178,7 +181,7 @@ export default function ActiveRouteWidget() {
   const totalDistance = useMemo(
     () =>
       routeCoordinates.length > 1
-        ? turf.length(turf.lineString(routeCoordinates), { units: 'kilometers' })
+        ? length(lineString(routeCoordinates), { units: 'kilometers' })
         : 0,
     [routeCoordinates]
   );
@@ -395,9 +398,9 @@ export default function ActiveRouteWidget() {
   const updateDistances = useCallback(
     (coords: Location.LocationObjectCoords) => {
       if (routeCoordinates.length < 2) return;
-      const currentPoint = turf.point([coords.longitude, coords.latitude]);
-      const line = turf.lineString(routeCoordinates);
-      const snapped = turf.nearestPointOnLine(line, currentPoint, { units: 'kilometers' });
+      const currentPoint = point([coords.longitude, coords.latitude]);
+      const line = lineString(routeCoordinates);
+      const snapped = nearestPointOnLine(line, currentPoint, { units: 'kilometers' });
       const rawCovered = snapped.properties.location;
       const covered = Math.max(0, Math.min(totalDistance, Number(rawCovered) || 0));
       setDistanceCovered(covered);
@@ -491,12 +494,12 @@ export default function ActiveRouteWidget() {
   useEffect(() => {
     if (FAKE_ROUTE_PROGRESS_FOR_TEST == null) return;
     if (loading || routeCoordinates.length < 2 || totalDistance <= 0) return;
-    const line = turf.lineString(routeCoordinates);
+    const line = lineString(routeCoordinates);
     const kmAlong = Math.min(
       totalDistance * FAKE_ROUTE_PROGRESS_FOR_TEST,
       totalDistance * 0.999999
     );
-    const pt = turf.along(line, kmAlong, { units: 'kilometers' });
+    const pt = along(line, kmAlong, { units: 'kilometers' });
     const [lon, lat] = pt.geometry.coordinates;
     const fakeCoords: Location.LocationObjectCoords = {
       latitude: lat,
