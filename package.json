@@ -10,7 +10,8 @@
     "web": "expo start --web",
     "lint": "expo lint",
     "prebuild:apk": "npx expo prebuild --platform android",
-    "build:apk": "npx eas build --platform android --profile preview --local --output ./build/rivertrack.apk"
+    "build:apk": "npx eas build --platform android --profile preview --local --output ./build/rivertrack.apk",
+    "build:apk:production": "npx eas build --platform android --profile production --local --output ./build/rivertrack.apk"
   },
   "dependencies": {
     "@maplibre/maplibre-react-native": "^10.4.2",

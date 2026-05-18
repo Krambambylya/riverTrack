@@ -16,61 +16,74 @@ import * as turf from '@turf/turf';
 import * as Location from 'expo-location';
 import { AppleMaps } from 'expo-maps';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
-/** Пульс изолирован: не дергает state родителя, чтобы жесты MapLibre не залипали. */
-const ActiveRouteUserPulseLayer = memo(function ActiveRouteUserPulseLayer({
-  mapLibre,
-  userLocationPoint,
-}: {
-  mapLibre: Record<string, unknown>;
-  userLocationPoint: { latitude: number; longitude: number };
-}) {
-  const M = mapLibre as {
-    ShapeSource: React.ComponentType<Record<string, unknown>>;
-    CircleLayer: React.ComponentType<Record<string, unknown>>;
-  };
-  const [ring, setRing] = useState({ radius: 10, opacity: 0.45 });
+/*
+ * Пульс пользователя (оверлей + getPointInView) — отключён: даёт просадки на карте.
+ * Чтобы вернуть: раскомментировать блок ниже, состояние/ref/эффекты sync*, обёртку MapView в JSX.
+ *
+const PULSE_RING_BASE = 40;
 
-  const shape = useMemo(
-    () =>
-      ({
-        type: 'Feature' as const,
-        properties: {},
-        geometry: {
-          type: 'Point' as const,
-          coordinates: [userLocationPoint.longitude, userLocationPoint.latitude],
-        },
-      }) as const,
-    [userLocationPoint.latitude, userLocationPoint.longitude]
-  );
+const ActiveRouteUserPulseOverlay = memo(function ActiveRouteUserPulseOverlay({
+  x,
+  y,
+}: {
+  x: number;
+  y: number;
+}) {
+  const ringScale = useRef(new Animated.Value(0.4)).current;
+  const ringOpacity = useRef(new Animated.Value(0.48)).current;
 
   useEffect(() => {
-    const id = setInterval(() => {
-      const phase = (Date.now() % 2200) / 2200;
-      setRing({
-        radius: 8 + phase * 30,
-        opacity: 0.52 * (1 - phase) * (1 - phase),
-      });
-    }, 100);
-    return () => clearInterval(id);
-  }, [userLocationPoint.latitude, userLocationPoint.longitude]);
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(ringScale, {
+            toValue: 2.35,
+            duration: 2100,
+            useNativeDriver: true,
+          }),
+          Animated.timing(ringOpacity, {
+            toValue: 0,
+            duration: 2100,
+            useNativeDriver: true,
+          }),
+        ]),
+        Animated.parallel([
+          Animated.timing(ringScale, { toValue: 0.4, duration: 0, useNativeDriver: true }),
+          Animated.timing(ringOpacity, { toValue: 0.5, duration: 0, useNativeDriver: true }),
+        ]),
+      ])
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+      ringScale.setValue(0.4);
+      ringOpacity.setValue(0.48);
+    };
+  }, [ringOpacity, ringScale]);
 
+  const half = PULSE_RING_BASE / 2;
   return (
-    <M.ShapeSource id="active-user-pulse-source" shape={shape}>
-      <M.CircleLayer
-        id="active-user-pulse-layer"
-        style={{
-          circleRadius: ring.radius,
-          circleColor: AppTheme.mapUserOrLineBlue,
-          circleOpacity: ring.opacity,
-          circlePitchAlignment: 'map',
-        }}
-      />
-    </M.ShapeSource>
+    <Animated.View
+      pointerEvents="none"
+      style={{
+        position: 'absolute',
+        left: x - half,
+        top: y - half,
+        width: PULSE_RING_BASE,
+        height: PULSE_RING_BASE,
+        borderRadius: PULSE_RING_BASE / 2,
+        borderWidth: 2,
+        borderColor: AppTheme.mapUserOrLineBlue,
+        transform: [{ scale: ringScale }],
+        opacity: ringOpacity,
+      }}
+    />
   );
 });
+ */
 
 /** В dev: точка на этой доле длины маршрута вместо GPS. `null` — выключено. */
 const FAKE_ROUTE_PROGRESS_FOR_TEST: number | null = __DEV__ ? 0.73 : null;
@@ -142,6 +155,7 @@ export default function ActiveRouteWidget() {
   const [distanceCovered, setDistanceCovered] = useState(0);
   const [distanceRemaining, setDistanceRemaining] = useState(0);
   const [userLocationPoint, setUserLocationPoint] = useState<{ latitude: number; longitude: number } | null>(null);
+  /* Пульс (отключён): androidMapRef, userPulseScreenPos, userPulseRegionRafRef + syncUserPulseScreenPosition / schedule* / useEffect — см. закомментированный ActiveRouteUserPulseOverlay выше. */
   const [savedRoutePoints, setSavedRoutePoints] = useState<RoutePoint[]>([]);
   const [savedRivers, setSavedRivers] = useState<string[]>([]);
   const [savedStartPoint, setSavedStartPoint] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -282,6 +296,48 @@ export default function ActiveRouteWidget() {
       animationMode: 'moveTo',
     };
   }, [effectiveStartPoint?.latitude, effectiveStartPoint?.longitude, hasRoute, routeIdentity]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /*
+  const syncUserPulseScreenPosition = useCallback(async () => {
+    if (Platform.OS !== 'android') {
+      setUserPulseScreenPos(null);
+      return;
+    }
+    if (!userLocationPoint) {
+      setUserPulseScreenPos(null);
+      return;
+    }
+    const map = androidMapRef.current;
+    if (!map) return;
+    try {
+      const [x, y] = await map.getPointInView([userLocationPoint.longitude, userLocationPoint.latitude]);
+      setUserPulseScreenPos({ x, y });
+    } catch {
+      // карта / стиль ещё не готовы
+    }
+  }, [userLocationPoint]);
+
+  const scheduleUserPulseScreenFromRegion = useCallback(() => {
+    if (userPulseRegionRafRef.current != null) return;
+    userPulseRegionRafRef.current = requestAnimationFrame(() => {
+      userPulseRegionRafRef.current = null;
+      void syncUserPulseScreenPosition();
+    });
+  }, [syncUserPulseScreenPosition]);
+
+  useEffect(() => {
+    void syncUserPulseScreenPosition();
+  }, [syncUserPulseScreenPosition]);
+
+  useEffect(
+    () => () => {
+      if (userPulseRegionRafRef.current != null) {
+        cancelAnimationFrame(userPulseRegionRafRef.current);
+      }
+    },
+    []
+  );
+  */
 
   const androidRouteLine = useMemo(
     () => ({
@@ -588,9 +644,6 @@ export default function ActiveRouteWidget() {
               />
             </MapLibre.ShapeSource>
           )}
-          {/* {userLocationPoint && (
-            <ActiveRouteUserPulseLayer mapLibre={MapLibre} userLocationPoint={userLocationPoint} />
-          )} */}
           {androidRouteMarkers.features.length > 0 && (
             <MapLibre.ShapeSource id="active-route-points-source" shape={androidRouteMarkers}>
               <MapLibre.CircleLayer
