@@ -44,7 +44,7 @@ const OVERPASS_URLS = [
   'https://overpass.kumi.systems/api/interpreter',
   'https://lz4.overpass-api.de/api/interpreter',
 ];
-const OVERPASS_REQUEST_TIMEOUT_MS = 9000;
+const OVERPASS_REQUEST_TIMEOUT_MS = 14_000;
 
 const MAX_DISTANCE = 30000;
 const DEBOUNCE_MS = 400;
@@ -77,6 +77,15 @@ const buildBBox = (start: LatLon, end: LatLon): string => {
 const overpassCache = new Map<string, OverpassResponse>();
 const routeCache = new Map<string, { route: RoutePoint[]; rivers: string[] }>();
 
+const overpassRequestBody = (overpassQl: string) =>
+  `data=${encodeURIComponent(overpassQl.trim())}`;
+
+const OVERPASS_HEADERS: Record<string, string> = {
+  Accept: '*/*',
+  'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+  'User-Agent': 'RiverTrack/1.0 (OSM Overpass consumer; contact via app store listing)',
+};
+
 const fetchRiverData = async (
   bbox: string,
   onStatus?: (status: string) => void
@@ -100,7 +109,12 @@ const fetchRiverData = async (
       onStatus?.(`Запрашиваем данные рек (${index + 1}/${OVERPASS_URLS.length})...`);
       const controller = new AbortController();
       timeoutId = setTimeout(() => controller.abort(), OVERPASS_REQUEST_TIMEOUT_MS);
-      const response = await fetch(url, { method: 'POST', body: query, signal: controller.signal });
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: OVERPASS_HEADERS,
+        body: overpassRequestBody(query),
+        signal: controller.signal,
+      });
       if (!response.ok) {
         let bodyPreview = '';
         try {
@@ -124,7 +138,14 @@ const fetchRiverData = async (
         console.log('[RiverTrack][Overpass] remark от API', { url, remark: data.remark });
       }
       if (typeof data.error === 'string' && data.error.trim().length > 0) {
-        console.log('[RiverTrack][Overpass] error от API', { url, error: data.error });
+        console.error('[RiverTrack][Overpass] error от API', { url, error: data.error });
+        onStatus?.(`Ошибка Overpass (${index + 1}/${OVERPASS_URLS.length}), пробуем другой...`);
+        continue;
+      }
+      if (!Array.isArray(data.elements)) {
+        console.error('[RiverTrack][Overpass] ответ без elements', { url, keys: Object.keys(data) });
+        onStatus?.(`Некорректный ответ сервера (${index + 1}/${OVERPASS_URLS.length}), пробуем другой...`);
+        continue;
       }
       overpassCache.set(bbox, data);
       return data;
