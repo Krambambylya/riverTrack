@@ -12,7 +12,7 @@
     },
     "ios": {
       "icon": "./assets/images/logoApp.jpg",
-      "bundleIdentifier": "com.krambambylya.RiverTrack",
+      "bundleIdentifier": "com.wlb.RiverTrack",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
@@ -25,7 +25,7 @@
         "monochromeImage": "./assets/images/logoApp.jpg"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.krambambylya.RiverTrack"
+      "package": "com.wlb.RiverTrack"
     },
     "web": {
       "output": "static",

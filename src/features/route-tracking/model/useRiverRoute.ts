@@ -102,16 +102,42 @@ const fetchRiverData = async (
       timeoutId = setTimeout(() => controller.abort(), OVERPASS_REQUEST_TIMEOUT_MS);
       const response = await fetch(url, { method: 'POST', body: query, signal: controller.signal });
       if (!response.ok) {
+        let bodyPreview = '';
+        try {
+          bodyPreview = (await response.text()).slice(0, 4000);
+        } catch {
+          bodyPreview = '(не удалось прочитать тело ответа)';
+        }
+        console.log('[RiverTrack][Overpass] сервис недоступен или ответил с ошибкой', {
+          url,
+          status: response.status,
+          statusText: response.statusText,
+          body: bodyPreview || '(пустое тело)',
+        });
         onStatus?.(
           `Сервер карт не ответил (${index + 1}/${OVERPASS_URLS.length}), пробуем другой...`
         );
         continue;
       }
-      const data = await response.json();
+      const data = (await response.json()) as OverpassResponse & { remark?: string; error?: string };
+      if (typeof data.remark === 'string' && data.remark.trim().length > 0) {
+        console.log('[RiverTrack][Overpass] remark от API', { url, remark: data.remark });
+      }
+      if (typeof data.error === 'string' && data.error.trim().length > 0) {
+        console.log('[RiverTrack][Overpass] error от API', { url, error: data.error });
+      }
       overpassCache.set(bbox, data);
       return data;
     } catch (error) {
       const isTimeout = error instanceof Error && error.name === 'AbortError';
+      console.log('[RiverTrack][Overpass] запрос не выполнен', {
+        url,
+        isTimeout,
+        error:
+          error instanceof Error
+            ? { name: error.name, message: error.message, stack: error.stack }
+            : error,
+      });
       onStatus?.(
         isTimeout
           ? `Сервер не ответил за ${Math.round(OVERPASS_REQUEST_TIMEOUT_MS / 1000)} c, переключаемся...`
@@ -122,7 +148,9 @@ const fetchRiverData = async (
     }
   }
 
-  throw new Error('Сервис данных рек временно недоступен');
+  const backendError = new Error('Сервис данных рек временно недоступен');
+  console.log('[RiverTrack][Overpass] все зеркала недоступны', { tried: OVERPASS_URLS });
+  throw backendError;
 };
 
 const buildGraph = (data: OverpassResponse): Graph => {
@@ -313,9 +341,12 @@ export const useRiverRoute = (
             setRivers(riversFromPath);
             setLoadingStatus('Маршрут успешно построен.');
           }
-        } catch (requestError: any) {
+        } catch (requestError: unknown) {
           if (!cancelled) {
-            setError(requestError.message || 'Ошибка построения маршрута');
+            console.log('[RiverTrack][useRiverRoute] ошибка построения маршрута', requestError);
+            setError(
+              requestError instanceof Error ? requestError.message : 'Ошибка построения маршрута'
+            );
             setRoute([]);
             setRivers([]);
             setLoadingStatus('Ошибка при построении маршрута.');

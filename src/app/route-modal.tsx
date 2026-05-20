@@ -1,6 +1,22 @@
 import { AppTheme } from '@/constants/theme';
-import { deleteSavedRoute, getSavedRouteById, renameSavedRoute, type SavedRoute } from '@/entities/route';
+import { deleteSavedRoute, getSavedRouteById, renameSavedRoute } from '@/entities/route';
+import {
+  maplibreRouteLineLayerStyle,
+  maplibreStartFinishCircleLayerStyle,
+} from '@/shared/config/maplibre-layers';
 import { MAPLIBRE_OSM_STYLE } from '@/shared/config/maplibre-osm-style';
+import {
+  appleMapsCameraFromRoutePoints,
+  fallbackAppleMapsCamera,
+} from '@/shared/lib/apple-maps-camera';
+import { formatDateRuDayMonthYear } from '@/shared/lib/format-date-ru';
+import { getAndroidMapLibre } from '@/shared/lib/maplibre-android';
+import {
+  geoJsonLineStringFromRoutePoints,
+  geoJsonStartFinishMarkers,
+} from '@/shared/lib/route-geojson';
+import { buildRouteShareMessage } from '@/shared/lib/route-share-message';
+import { firstRouterParam } from '@/shared/lib/router-param';
 import { AppleMaps } from 'expo-maps';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -16,31 +32,12 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-function buildRouteShareMessage(route: SavedRoute): string {
-  const lines: string[] = [
-    'RiverTrack — водный маршрут',
-    '',
-    `Название: ${route.title}`,
-    '',
-    `Старт: ${route.start.lat.toFixed(5)}, ${route.start.lon.toFixed(5)}`,
-    '',
-    `Финиш: ${route.finish.lat.toFixed(5)}, ${route.finish.lon.toFixed(5)}`,
-    '',
-    `Реки: ${route.rivers.length > 0 ? route.rivers.join(', ') : 'не определены'}`,
-  ];
-  if (route.favorited) {
-    lines.push('', 'Избранное: да');
-  }
-  lines.push('', `Идентификатор: ${route.id}`);
-  return lines.join('\n');
-}
-
 export default function RouteModalScreen() {
-  const MapLibre = Platform.OS === 'android' ? require('@maplibre/maplibre-react-native') : null;
+  const MapLibre = getAndroidMapLibre();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { routeId } = useLocalSearchParams<{ routeId?: string | string[] }>();
-  const normalizedRouteId = Array.isArray(routeId) ? routeId[0] : routeId;
+  const normalizedRouteId = firstRouterParam(routeId);
   const decodedRouteId = normalizedRouteId ? decodeURIComponent(normalizedRouteId) : undefined;
 
   const [route, setRoute] = useState<Awaited<ReturnType<typeof getSavedRouteById>>>(null);
@@ -66,82 +63,26 @@ export default function RouteModalScreen() {
     };
   }, [decodedRouteId]);
 
-  const formatDate = (iso: string) => {
-    const date = new Date(iso);
-    if (Number.isNaN(date.getTime())) return 'Неизвестно';
-    return date.toLocaleString('ru-RU', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-    });
-  };
-
   const previewCamera = useMemo(() => {
     if (!route || route.route.length < 2) {
-      return { coordinates: { latitude: 48.67, longitude: 45.29 }, zoom: 11 };
+      return fallbackAppleMapsCamera(11);
     }
-    const latitudes = route.route.map((point) => point.latitude);
-    const longitudes = route.route.map((point) => point.longitude);
-    const minLat = Math.min(...latitudes);
-    const maxLat = Math.max(...latitudes);
-    const minLon = Math.min(...longitudes);
-    const maxLon = Math.max(...longitudes);
-    const latSpan = Math.max(0.0001, maxLat - minLat);
-    const lonSpan = Math.max(0.0001, maxLon - minLon);
-    const maxSpan = Math.max(latSpan, lonSpan);
-
-    let zoom = 12;
-    if (maxSpan < 0.01) zoom = 14;
-    else if (maxSpan < 0.03) zoom = 13;
-    else if (maxSpan < 0.08) zoom = 12;
-    else if (maxSpan < 0.16) zoom = 11;
-    else zoom = 10;
-
-    return {
-      coordinates: {
-        latitude: (minLat + maxLat) / 2,
-        longitude: (minLon + maxLon) / 2,
-      },
-      zoom,
-    };
+    return appleMapsCameraFromRoutePoints(route.route) ?? fallbackAppleMapsCamera(11);
   }, [route]);
+
   const androidCenterCoordinate = useMemo(() => {
     return [previewCamera.coordinates.longitude, previewCamera.coordinates.latitude];
   }, [previewCamera]);
+
   const androidRouteLine = useMemo(() => {
     if (!route) return null;
-    return {
-      type: 'Feature' as const,
-      properties: {},
-      geometry: {
-        type: 'LineString' as const,
-        coordinates: route.route.map((point) => [point.longitude, point.latitude]),
-      },
-    };
+    if (route.route.length === 0) return null;
+    return geoJsonLineStringFromRoutePoints(route.route);
   }, [route]);
+
   const androidRoutePoints = useMemo(() => {
     if (!route) return null;
-    return {
-      type: 'FeatureCollection' as const,
-      features: [
-        {
-          type: 'Feature' as const,
-          properties: { role: 'start' },
-          geometry: {
-            type: 'Point' as const,
-            coordinates: [route.start.lon, route.start.lat],
-          },
-        },
-        {
-          type: 'Feature' as const,
-          properties: { role: 'finish' },
-          geometry: {
-            type: 'Point' as const,
-            coordinates: [route.finish.lon, route.finish.lat],
-          },
-        },
-      ],
-    };
+    return geoJsonStartFinishMarkers(route.start, route.finish);
   }, [route]);
 
   const confirmRename = async () => {
@@ -170,7 +111,7 @@ export default function RouteModalScreen() {
     try {
       await Share.share({ message, title: route.title });
     } catch {
-      // отмена пользователем или недоступный share
+
     }
   };
 
@@ -231,7 +172,7 @@ export default function RouteModalScreen() {
                 Финиш: {route.finish.lat.toFixed(5)}, {route.finish.lon.toFixed(5)}
               </Text>
               <Text style={styles.meta}>Реки: {route.rivers.join(', ') || 'Не определены'}</Text>
-              <Text style={styles.meta}>Дата: {formatDate(route.createdAt)}</Text>
+              <Text style={styles.meta}>Дата: {formatDateRuDayMonthYear(route.createdAt)}</Text>
 
               {Platform.OS === 'android' && MapLibre ? (
                 <MapLibre.MapView style={styles.previewMap} mapStyle={MAPLIBRE_OSM_STYLE} logoEnabled={false}>
@@ -242,33 +183,14 @@ export default function RouteModalScreen() {
                   />
                   {androidRouteLine && (
                     <MapLibre.ShapeSource id="route-modal-line-source" shape={androidRouteLine}>
-                      <MapLibre.LineLayer
-                        id="route-modal-line-layer"
-                        style={{
-                          lineColor: AppTheme.mapRouteLine,
-                          lineWidth: 4,
-                        }}
-                      />
+                      <MapLibre.LineLayer id="route-modal-line-layer" style={maplibreRouteLineLayerStyle} />
                     </MapLibre.ShapeSource>
                   )}
                   {androidRoutePoints && (
                     <MapLibre.ShapeSource id="route-modal-points-source" shape={androidRoutePoints}>
                       <MapLibre.CircleLayer
                         id="route-modal-points-layer"
-                        style={{
-                          circleRadius: 6,
-                          circleColor: [
-                            'match',
-                            ['get', 'role'],
-                            'start',
-                            AppTheme.mapPointStart,
-                            'finish',
-                            AppTheme.mapPointFinish,
-                            AppTheme.foreground,
-                          ],
-                          circleStrokeWidth: 2,
-                          circleStrokeColor: AppTheme.foreground,
-                        }}
+                        style={maplibreStartFinishCircleLayerStyle}
                       />
                     </MapLibre.ShapeSource>
                   )}

@@ -1,396 +1,25 @@
 import { AppTheme, BottomTabInset } from '@/constants/theme';
-import { getSavedRoutes, SavedRoute, setSavedRouteFavorited, type RoutePoint } from '@/entities/route';
+import { getSavedRoutes, SavedRoute, setSavedRouteFavorited } from '@/entities/route';
 import { getReliableCurrentPositionAsync } from '@/shared/lib/get-reliable-current-position';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
-import { lineString } from '@turf/helpers';
-import length from '@turf/length';
 import * as Location from 'expo-location';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  Image,
   Pressable,
   ScrollView,
   SectionList,
   StyleSheet,
   Text,
   TextInput,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Circle, Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 
-function YearSectionHeader({ year }: { year: number }) {
-  const rawId = React.useId().replace(/[^a-zA-Z0-9_-]/g, '');
-  const fillId = `yearHdr-${rawId}`;
-
-  return (
-    <View style={styles.yearHeader}>
-      <Svg
-        pointerEvents="none"
-        style={StyleSheet.absoluteFill}
-        width="100%"
-        height="100%"
-        preserveAspectRatio="none">
-        <Defs>
-          <LinearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor={AppTheme.background} stopOpacity={1} />
-            <Stop offset="0.45" stopColor={AppTheme.background} stopOpacity={0.55} />
-            <Stop offset="1" stopColor={AppTheme.background} stopOpacity={0} />
-          </LinearGradient>
-        </Defs>
-        <Rect width="100%" height="100%" fill={`url(#${fillId})`} />
-      </Svg>
-      <Text style={styles.yearHeaderText}>{year}</Text>
-    </View>
-  );
-}
-
-const RIVER_VIEW_W = 300;
-
-const RIVER_VIEW_H = 100;
-const RIVER_PAD = 6;
-const RIVER_MAX_POINTS = 96;
-
-const STAR_ICON_LIGHT = require('@/assets/images/icons/star/light/star.png');
-const STAR_ICON_GREEN = require('@/assets/images/icons/star/green/star.png');
-
-function decimateRoutePoints(pts: RoutePoint[], max: number): RoutePoint[] {
-  if (pts.length <= max) return pts;
-  const out: RoutePoint[] = [];
-  const last = pts.length - 1;
-  for (let i = 0; i < max; i++) {
-    const t = i / (max - 1);
-    const idx = Math.round(t * last);
-    out.push(pts[idx]);
-  }
-  return out;
-}
-
-function collectPolylineForPreview(route: SavedRoute): RoutePoint[] {
-  const r = route.route;
-  if (r && r.length >= 2) {
-    return decimateRoutePoints(r, RIVER_MAX_POINTS);
-  }
-  if (r && r.length === 1) {
-    return [
-      { latitude: route.start.lat, longitude: route.start.lon },
-      r[0],
-      { latitude: route.finish.lat, longitude: route.finish.lon },
-    ];
-  }
-  return [
-    { latitude: route.start.lat, longitude: route.start.lon },
-    { latitude: route.finish.lat, longitude: route.finish.lon },
-  ];
-}
-
-function buildRiverSvgPreview(route: SavedRoute): {
-  d: string;
-  sx: number;
-  sy: number;
-  ex: number;
-  ey: number;
-} | null {
-  const pts = collectPolylineForPreview(route);
-  if (pts.length < 2) return null;
-
-  const lats = pts.map((p) => p.latitude);
-  const lons = pts.map((p) => p.longitude);
-  let minLat = Math.min(...lats);
-  let maxLat = Math.max(...lats);
-  let minLon = Math.min(...lons);
-  let maxLon = Math.max(...lons);
-
-  const latSpan = maxLat - minLat;
-  const lonSpan = maxLon - minLon;
-  const eps = 1e-6;
-  if (latSpan < eps) {
-    minLat -= eps;
-    maxLat += eps;
-  }
-  if (lonSpan < eps) {
-    minLon -= eps;
-    maxLon += eps;
-  }
-
-  const innerW = RIVER_VIEW_W - 2 * RIVER_PAD;
-  const innerH = RIVER_VIEW_H - 2 * RIVER_PAD;
-
-  const midLat = (minLat + maxLat) / 2;
-  const cosMid = Math.cos((midLat * Math.PI) / 180);
-
-  let widthGeo = (maxLon - minLon) * cosMid;
-  let heightGeo = maxLat - minLat;
-  if (widthGeo < eps) widthGeo = eps;
-  if (heightGeo < eps) heightGeo = eps;
-
-  const scale = Math.min(innerW / widthGeo, innerH / heightGeo);
-  const scaledW = widthGeo * scale;
-  const scaledH = heightGeo * scale;
-  const offX = RIVER_PAD + (innerW - scaledW) / 2;
-  const offY = RIVER_PAD + (innerH - scaledH) / 2;
-
-  const project = (p: RoutePoint) => {
-    const x = offX + (p.longitude - minLon) * cosMid * scale;
-    const y = offY + (maxLat - p.latitude) * scale;
-    return { x, y };
-  };
-
-  const projected = pts.map(project);
-  const d = projected.map((q, i) => `${i === 0 ? 'M' : 'L'} ${q.x.toFixed(2)} ${q.y.toFixed(2)}`).join(' ');
-  const first = projected[0];
-  const last = projected[projected.length - 1];
-  return { d, sx: first.x, sy: first.y, ex: last.x, ey: last.y };
-}
-
-function RiverPathSvg({ widthPx, route }: { widthPx: number; route: SavedRoute }) {
-  const w = Math.max(160, widthPx);
-  const preview = useMemo(() => buildRiverSvgPreview(route), [route]);
-  const svgH = Math.max(40, Math.round((w * RIVER_VIEW_H) / RIVER_VIEW_W));
-
-  if (!preview) {
-    return (
-      <Svg width={w} height={svgH} viewBox={`0 0 ${RIVER_VIEW_W} ${RIVER_VIEW_H}`} preserveAspectRatio="xMidYMid meet">
-        <Path
-          d={`M 0 ${RIVER_VIEW_H / 2} Q 50 ${RIVER_VIEW_H / 2 - 12}, 100 ${RIVER_VIEW_H / 2} T 200 ${RIVER_VIEW_H / 2} Q 250 ${RIVER_VIEW_H / 2 + 8}, 300 ${RIVER_VIEW_H / 2}`}
-          stroke="rgba(43, 122, 75, 0.45)"
-          strokeWidth={2}
-          fill="none"
-        />
-      </Svg>
-    );
-  }
-
-  return (
-    <Svg width={w} height={svgH} viewBox={`0 0 ${RIVER_VIEW_W} ${RIVER_VIEW_H}`} preserveAspectRatio="xMidYMid meet">
-      <Path
-        d={preview.d}
-        stroke="rgba(43, 122, 75, 0.45)"
-        strokeWidth={2}
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <Circle cx={preview.sx} cy={preview.sy} r={4} fill={AppTheme.primary} />
-      <Circle cx={preview.ex} cy={preview.ey} r={4} fill={AppTheme.mapPointFinish} />
-    </Svg>
-  );
-}
-
-type PresetFilter = 'all' | 'favorites' | 'newest' | 'oldest' | 'nearby';
-
-type RoutesYearSection = {
-  year: number;
-  data: SavedRoute[];
-};
-
-const PRESET_LABELS: { id: PresetFilter; label: string }[] = [
-  { id: 'all', label: 'Все' },
-  { id: 'favorites', label: 'Избранные' },
-  { id: 'nearby', label: 'Ближайшие ко мне' },
-  { id: 'newest', label: 'Сначала новые' },
-  { id: 'oldest', label: 'Сначала старые' },
-];
-
-function sortRoutesByCreatedAt(routes: SavedRoute[], direction: 'asc' | 'desc'): SavedRoute[] {
-  return [...routes].sort((a, b) => {
-    const ta = new Date(a.createdAt).getTime();
-    const tb = new Date(b.createdAt).getTime();
-    const cmp = ta - tb;
-    return direction === 'desc' ? -cmp : cmp;
-  });
-}
-
-function formatListDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
-}
-
-function routeLengthKm(route: SavedRoute): number {
-  const pts = route.route;
-  if (!pts || pts.length < 2) return 0;
-  try {
-    const coords = pts.map((p) => [p.longitude, p.latitude] as [number, number]);
-    return length(lineString(coords), { units: 'kilometers' });
-  } catch {
-    return 0;
-  }
-}
-
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-    Math.cos((lat2 * Math.PI) / 180) *
-    Math.sin(dLon / 2) *
-    Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-function HomeRouteCard({
-  route,
-  favorited,
-  onOpen,
-  onStart,
-  onToggleFavorite,
-}: {
-  route: SavedRoute;
-  favorited: boolean;
-  onOpen: () => void;
-  onStart: () => void;
-  onToggleFavorite: () => void;
-}) {
-  const { width: windowWidth } = useWindowDimensions();
-  const riverPathWidth = Math.max(160, windowWidth - 64);
-  const km = routeLengthKm(route);
-  const kmLabel = km < 0.05 ? '<0.1' : km < 10 ? km.toFixed(1) : Math.round(km).toString();
-
-  return (
-    <View style={cardStyles.wrap}>
-      <View style={cardStyles.row}>
-        <Pressable style={cardStyles.mainTap} onPress={onOpen}>
-          <Text style={cardStyles.title} numberOfLines={2}>
-            {route.title}
-          </Text>
-          <Text style={cardStyles.rivers} numberOfLines={1}>
-            Реки: {route.rivers.length > 0 ? route.rivers.join(', ') : 'Река не указана'}
-          </Text>
-          <View style={cardStyles.metaRow}>
-            <View style={cardStyles.metaItem}>
-              <MaterialCommunityIcons name="calendar-outline" size={16} color={AppTheme.mutedForeground} />
-              <Text style={cardStyles.metaText}>{formatListDate(route.createdAt)}</Text>
-            </View>
-            <View style={cardStyles.metaItem}>
-              <MaterialCommunityIcons name="navigation-variant" size={16} color={AppTheme.mutedForeground} />
-              <Text style={cardStyles.metaText}>{kmLabel} км</Text>
-            </View>
-          </View>
-        </Pressable>
-        <View style={cardStyles.actionsCol}>
-          <Pressable
-            style={({ pressed }) => [cardStyles.startBtn, pressed && cardStyles.startBtnPressed]}
-            onPress={onStart}>
-            <Text style={cardStyles.startBtnText}>Старт</Text>
-          </Pressable>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={favorited ? 'Убрать из избранного' : 'В избранное'}
-            style={({ pressed }) => [cardStyles.starBtn, pressed && cardStyles.starBtnPressed]}
-            onPress={onToggleFavorite}>
-            <Image
-              source={favorited ? STAR_ICON_GREEN : STAR_ICON_LIGHT}
-              style={cardStyles.starIcon}
-              resizeMode="contain"
-            />
-          </Pressable>
-        </View>
-      </View>
-      <View style={cardStyles.riverViz}>
-        <RiverPathSvg widthPx={riverPathWidth} route={route} />
-      </View>
-    </View>
-  );
-}
-
-const cardStyles = StyleSheet.create({
-  wrap: {
-    backgroundColor: AppTheme.card,
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.12)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35,
-    shadowRadius: 8,
-    elevation: 6,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  mainTap: {
-    flex: 1,
-    minWidth: 0,
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: AppTheme.foreground,
-    marginBottom: 8,
-  },
-  rivers: {
-    fontSize: 14,
-    color: AppTheme.mutedForeground,
-    marginBottom: 12,
-  },
-  metaRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 16,
-  },
-  metaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  metaText: {
-    fontSize: 13,
-    color: AppTheme.mutedForeground,
-    fontWeight: '500',
-  },
-  startBtn: {
-    backgroundColor: AppTheme.primary,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderRadius: 8,
-    justifyContent: 'center',
-  },
-  startBtnPressed: {
-    opacity: 0.9,
-  },
-  startBtnText: {
-    color: AppTheme.primaryForeground,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  actionsCol: {
-    gap: 8,
-    alignItems: 'stretch',
-    flexShrink: 0,
-  },
-  starBtn: {
-    minHeight: 44,
-    paddingVertical: 6,
-    paddingHorizontal: 6,
-    borderRadius: 8,
-    backgroundColor: 'transparent',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  starBtnPressed: {
-    opacity: 0.75,
-  },
-  starIcon: {
-    width: 26,
-    height: 26,
-  },
-  riverViz: {
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.08)',
-    position: 'relative',
-  },
-});
+import { PRESET_LABELS } from '../lib/constants';
+import { haversineKm, sortRoutesByCreatedAt } from '../lib/route-metrics';
+import type { PresetFilter, RoutesYearSection } from '../lib/types';
+import { HomeRouteCard } from './home-route-card';
+import { YearSectionHeader } from './year-section-header';
 
 export default function SavedRoutesListWidget() {
   const router = useRouter();
@@ -581,11 +210,6 @@ export default function SavedRoutesListWidget() {
         <View style={styles.header}>
           <View style={styles.headerTop}>
             <Text style={styles.headerTitle}>Мои маршруты</Text>
-            {/* <Pressable
-              style={({ pressed }) => [styles.headerIconBtn, pressed && styles.pressed]}
-              onPress={() => { }}>
-              <MaterialCommunityIcons name="account-outline" size={20} color={AppTheme.foreground} />
-            </Pressable> */}
           </View>
 
           <View style={styles.chipsRow}>
@@ -628,24 +252,6 @@ const styles = StyleSheet.create({
   listViewport: {
     flex: 1,
   },
-  yearHeader: {
-    position: 'relative',
-    overflow: 'hidden',
-    paddingTop: 6,
-    paddingBottom: 12,
-    alignItems: 'center',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: AppTheme.border,
-  },
-  yearHeaderText: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: AppTheme.mutedForeground,
-    letterSpacing: 1.2,
-    textAlign: 'center',
-    width: '100%',
-    zIndex: 1,
-  },
   listEmptyInner: {
     paddingTop: 8,
   },
@@ -683,14 +289,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: AppTheme.foreground,
     letterSpacing: -0.3,
-  },
-  headerIconBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: AppTheme.card,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   chipsRow: {
     marginBottom: 0,

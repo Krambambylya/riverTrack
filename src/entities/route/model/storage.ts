@@ -43,8 +43,7 @@ const writeRoutes = async (routes: SavedRoute[]) => {
   memoryFallbackRaw = payload;
   try {
     await AsyncStorage.setItem(ROUTES_STORAGE_KEY, payload);
-  } catch (error) {
-    // fallback to in-memory storage only
+  } catch {
   }
 };
 
@@ -137,8 +136,7 @@ export const setActiveRouteId = async (routeId: string | null): Promise<void> =>
     } else {
       await AsyncStorage.removeItem(ACTIVE_ROUTE_ID_STORAGE_KEY);
     }
-  } catch (error) {
-    // fallback to in-memory storage only
+  } catch {
   }
 };
 
@@ -159,8 +157,7 @@ export const setPendingRouteSelection = async (selection: { start: LatLon; finis
     } else {
       await AsyncStorage.removeItem(PENDING_ROUTE_SELECTION_STORAGE_KEY);
     }
-  } catch (error) {
-    // fallback to in-memory storage only
+  } catch {
   }
 };
 

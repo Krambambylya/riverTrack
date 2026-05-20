@@ -6,10 +6,6 @@ function segmentList(segments: readonly string[]): string[] {
   return segments as string[];
 }
 
-/**
- * Светлые иконки статус-бара на тёмном UI (вкладка «Маршруты», модалка со скримом),
- * тёмные — на светлом фоне под статус-баром (карта на «Построить» / «В пути»).
- */
 export function AppStatusBar() {
   const segments = useSegments();
   const segs = segmentList(segments);

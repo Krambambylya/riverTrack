@@ -1,7 +1,13 @@
 import { AppTheme } from '@/constants/theme';
 import { setPendingRouteSelection } from '@/entities/route';
+import { DEFAULT_MAP_REGION_CENTER } from '@/shared/config/map-defaults';
+import { maplibreStartFinishCircleLayerStyle } from '@/shared/config/maplibre-layers';
 import { MAPLIBRE_OSM_STYLE } from '@/shared/config/maplibre-osm-style';
 import { getReliableCurrentPositionAsync } from '@/shared/lib/get-reliable-current-position';
+import { getAndroidMapLibre } from '@/shared/lib/maplibre-android';
+import { applyRouteConstructorCamera } from '@/shared/lib/maplibre-route-constructor-camera';
+import { geoJsonFeatureCollectionForMarkers } from '@/shared/lib/route-geojson';
+import type { CameraRef } from '@maplibre/maplibre-react-native';
 import * as Location from 'expo-location';
 import { AppleMaps } from 'expo-maps';
 import { router } from 'expo-router';
@@ -9,43 +15,24 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const FALLBACK_CENTER = { latitude: 48.67, longitude: 45.29 };
-
-/** Стабильная ссылка: иначе Camera перерисовывается каждый рендер родителя (memo не спасает). */
 const ROUTE_CONSTRUCTOR_MAP_INITIAL_CAMERA = {
   zoomLevel: 13,
-  centerCoordinate: [FALLBACK_CENTER.longitude, FALLBACK_CENTER.latitude] as [number, number],
+  centerCoordinate: [DEFAULT_MAP_REGION_CENTER.longitude, DEFAULT_MAP_REGION_CENTER.latitude] as [
+    number,
+    number,
+  ],
 };
 
-function applyRouteConstructorCamera(
-  cameraRef: React.RefObject<{ setCamera: (config: Record<string, unknown>) => void } | null>,
-  latitude: number,
-  longitude: number
-) {
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => {
-      cameraRef.current?.setCamera?.({
-        centerCoordinate: [longitude, latitude],
-        zoomLevel: 13,
-        animationDuration: 0,
-        animationMode: 'moveTo',
-      });
-    });
-  });
-}
-
 export default function RouteConstructorWidget() {
-  const MapLibre = Platform.OS === 'android' ? require('@maplibre/maplibre-react-native') : null;
+  const MapLibre = getAndroidMapLibre();
   const insets = useSafeAreaInsets();
   const [startLat, setStartLat] = useState('');
   const [startLon, setStartLon] = useState('');
   const [finishLat, setFinishLat] = useState('');
   const [finishLon, setFinishLon] = useState('');
   const [selectionMode, setSelectionMode] = useState<'start' | 'finish'>('start');
-  const [mapCenter, setMapCenter] = useState(FALLBACK_CENTER);
-  const cameraRef = useRef<{
-    setCamera: (config: Record<string, unknown>) => void;
-  } | null>(null);
+  const [mapCenter, setMapCenter] = useState(DEFAULT_MAP_REGION_CENTER);
+  const cameraRef = useRef<CameraRef | null>(null);
   const startLatNum = Number(startLat);
   const startLonNum = Number(startLon);
   const finishLatNum = Number(finishLat);
@@ -69,7 +56,6 @@ export default function RouteConstructorWidget() {
         setMapCenter(next);
         applyRouteConstructorCamera(cameraRef, next.latitude, next.longitude);
       } catch {
-        // keep fallback center
       }
     })();
 
@@ -193,29 +179,26 @@ export default function RouteConstructorWidget() {
   );
 
   const androidSelectionPoints = useMemo(() => {
-    const features: {
-      type: 'Feature';
-      properties: { role: 'start' | 'finish' };
-      geometry: { type: 'Point'; coordinates: number[] };
-    }[] = [];
+    const markers: Array<{
+      role: 'start' | 'finish';
+      longitude: number;
+      latitude: number;
+    }> = [];
     if (hasStartPoint) {
-      features.push({
-        type: 'Feature',
-        properties: { role: 'start' },
-        geometry: { type: 'Point', coordinates: [Number(startLon), Number(startLat)] },
+      markers.push({
+        role: 'start',
+        longitude: Number(startLon),
+        latitude: Number(startLat),
       });
     }
     if (hasFinishPoint) {
-      features.push({
-        type: 'Feature',
-        properties: { role: 'finish' },
-        geometry: { type: 'Point', coordinates: [Number(finishLon), Number(finishLat)] },
+      markers.push({
+        role: 'finish',
+        longitude: Number(finishLon),
+        latitude: Number(finishLat),
       });
     }
-    return {
-      type: 'FeatureCollection' as const,
-      features,
-    };
+    return geoJsonFeatureCollectionForMarkers(markers);
   }, [finishLat, finishLon, hasFinishPoint, hasStartPoint, startLat, startLon]);
 
   const useCurrentLocationAsStart = async () => {
@@ -237,7 +220,6 @@ export default function RouteConstructorWidget() {
       applyRouteConstructorCamera(cameraRef, nextCenter.latitude, nextCenter.longitude);
       setSelectionMode('finish');
     } catch {
-      // keep current values
     }
   };
 
@@ -255,20 +237,7 @@ export default function RouteConstructorWidget() {
             <MapLibre.ShapeSource id="route-constructor-points-source" shape={androidSelectionPoints}>
               <MapLibre.CircleLayer
                 id="route-constructor-points-layer"
-                style={{
-                  circleRadius: 6,
-                  circleColor: [
-                    'match',
-                    ['get', 'role'],
-                    'start',
-                    AppTheme.mapPointStart,
-                    'finish',
-                    AppTheme.mapPointFinish,
-                    AppTheme.foreground,
-                  ],
-                  circleStrokeWidth: 2,
-                  circleStrokeColor: AppTheme.foreground,
-                }}
+                style={maplibreStartFinishCircleLayerStyle}
               />
             </MapLibre.ShapeSource>
           </MapLibre.MapView>
@@ -343,11 +312,6 @@ export default function RouteConstructorWidget() {
               </Text>
             </Pressable>
           </View>
-          {/* <Pressable
-            style={({ pressed }) => [styles.secondaryButton, pressed && styles.secondaryButtonPressed]}
-            onPress={useCurrentLocationAsStart}>
-            <Text style={styles.secondaryButtonText}>Моё местоположение = старт</Text>
-          </Pressable> */}
         </View>
       </View>
 

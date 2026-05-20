@@ -17,7 +17,6 @@ export const AppTheme = {
   borderStrong: 'rgba(255,255,255,0.12)',
   inputBackground: '#3A3A3C',
   overlayScrim: 'rgba(0,0,0,0.85)',
-  /** Точки и линии на карте (контраст на тайлах OSM / Apple) */
   mapRouteLine: '#2B7A4B',
   mapPointStart: '#6BCB9A',
   mapPointFinish: '#D93A3A',
@@ -51,13 +50,9 @@ export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
 
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
     sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
     serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
     rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: 'ui-monospace',
   },
   default: {

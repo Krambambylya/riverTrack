@@ -9,8 +9,20 @@ import {
   upsertSavedRoute,
 } from '@/entities/route';
 import { useRiverRoute } from '@/features/route-tracking';
+import { DEFAULT_MAP_REGION_CENTER } from '@/shared/config/map-defaults';
+import {
+  maplibreRouteLineLayerStyle,
+  maplibreRouteMarkersCircleLayerStyle,
+} from '@/shared/config/maplibre-layers';
 import { MAPLIBRE_OSM_STYLE } from '@/shared/config/maplibre-osm-style';
+import { appleMapsCameraFromRoutePoints } from '@/shared/lib/apple-maps-camera';
 import { getReliableCurrentPositionAsync } from '@/shared/lib/get-reliable-current-position';
+import { getAndroidMapLibre } from '@/shared/lib/maplibre-android';
+import {
+  geoJsonFeatureCollectionForMarkers,
+  geoJsonLineStringFromRoutePoints,
+} from '@/shared/lib/route-geojson';
+import { firstRouterParam } from '@/shared/lib/router-param';
 import type { CameraStop } from '@maplibre/maplibre-react-native';
 import along from '@turf/along';
 import { lineString, point } from '@turf/helpers';
@@ -22,77 +34,10 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
-/*
- * Пульс пользователя (оверлей + getPointInView) — отключён: даёт просадки на карте.
- * Чтобы вернуть: раскомментировать блок ниже, состояние/ref/эффекты sync*, обёртку MapView в JSX.
- *
-const PULSE_RING_BASE = 40;
-
-const ActiveRouteUserPulseOverlay = memo(function ActiveRouteUserPulseOverlay({
-  x,
-  y,
-}: {
-  x: number;
-  y: number;
-}) {
-  const ringScale = useRef(new Animated.Value(0.4)).current;
-  const ringOpacity = useRef(new Animated.Value(0.48)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.parallel([
-          Animated.timing(ringScale, {
-            toValue: 2.35,
-            duration: 2100,
-            useNativeDriver: true,
-          }),
-          Animated.timing(ringOpacity, {
-            toValue: 0,
-            duration: 2100,
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.parallel([
-          Animated.timing(ringScale, { toValue: 0.4, duration: 0, useNativeDriver: true }),
-          Animated.timing(ringOpacity, { toValue: 0.5, duration: 0, useNativeDriver: true }),
-        ]),
-      ])
-    );
-    loop.start();
-    return () => {
-      loop.stop();
-      ringScale.setValue(0.4);
-      ringOpacity.setValue(0.48);
-    };
-  }, [ringOpacity, ringScale]);
-
-  const half = PULSE_RING_BASE / 2;
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={{
-        position: 'absolute',
-        left: x - half,
-        top: y - half,
-        width: PULSE_RING_BASE,
-        height: PULSE_RING_BASE,
-        borderRadius: PULSE_RING_BASE / 2,
-        borderWidth: 2,
-        borderColor: AppTheme.mapUserOrLineBlue,
-        transform: [{ scale: ringScale }],
-        opacity: ringOpacity,
-      }}
-    />
-  );
-});
- */
-
-/** В dev: точка на этой доле длины маршрута вместо GPS. `null` — выключено. */
 const FAKE_ROUTE_PROGRESS_FOR_TEST: number | null = __DEV__ ? 0.73 : null;
 
 export default function ActiveRouteWidget() {
-  const MapLibre = Platform.OS === 'android' ? require('@maplibre/maplibre-react-native') : null;
+  const MapLibre = getAndroidMapLibre();
   const router = useRouter();
   const params = useLocalSearchParams<{
     startLat?: string | string[];
@@ -101,18 +46,14 @@ export default function ActiveRouteWidget() {
     finishLon?: string | string[];
     savedRouteId?: string;
   }>();
-  const getParamValue = useCallback((value?: string | string[]) => {
-    if (!value) return undefined;
-    return Array.isArray(value) ? value[0] : value;
-  }, []);
-  const normalizedParamSavedRouteId = useMemo(() => {
-    if (!params.savedRouteId) return undefined;
-    return Array.isArray(params.savedRouteId) ? params.savedRouteId[0] : params.savedRouteId;
-  }, [params.savedRouteId]);
-  const normalizedStartLat = useMemo(() => getParamValue(params.startLat), [getParamValue, params.startLat]);
-  const normalizedStartLon = useMemo(() => getParamValue(params.startLon), [getParamValue, params.startLon]);
-  const normalizedFinishLat = useMemo(() => getParamValue(params.finishLat), [getParamValue, params.finishLat]);
-  const normalizedFinishLon = useMemo(() => getParamValue(params.finishLon), [getParamValue, params.finishLon]);
+  const normalizedParamSavedRouteId = useMemo(
+    () => firstRouterParam(params.savedRouteId),
+    [params.savedRouteId]
+  );
+  const normalizedStartLat = useMemo(() => firstRouterParam(params.startLat), [params.startLat]);
+  const normalizedStartLon = useMemo(() => firstRouterParam(params.startLon), [params.startLon]);
+  const normalizedFinishLat = useMemo(() => firstRouterParam(params.finishLat), [params.finishLat]);
+  const normalizedFinishLon = useMemo(() => firstRouterParam(params.finishLon), [params.finishLon]);
   const [pendingSelection, setPendingSelection] = useState<{
     start: { lat: number; lon: number };
     finish: { lat: number; lon: number };
@@ -158,7 +99,7 @@ export default function ActiveRouteWidget() {
   const [distanceCovered, setDistanceCovered] = useState(0);
   const [distanceRemaining, setDistanceRemaining] = useState(0);
   const [userLocationPoint, setUserLocationPoint] = useState<{ latitude: number; longitude: number } | null>(null);
-  /* Пульс (отключён): androidMapRef, userPulseScreenPos, userPulseRegionRafRef + syncUserPulseScreenPosition / schedule* / useEffect — см. закомментированный ActiveRouteUserPulseOverlay выше. */
+
   const [savedRoutePoints, setSavedRoutePoints] = useState<RoutePoint[]>([]);
   const [savedRivers, setSavedRivers] = useState<string[]>([]);
   const [savedStartPoint, setSavedStartPoint] = useState<{ latitude: number; longitude: number } | null>(null);
@@ -227,45 +168,17 @@ export default function ActiveRouteWidget() {
     const last = effectiveRoutePoints[effectiveRoutePoints.length - 1];
     return `${effectiveRoutePoints.length}:${first.latitude},${first.longitude}:${last.latitude},${last.longitude}`;
   }, [effectiveRoutePoints, hasRoute]);
-  /** iOS AppleMaps: центр/зум по bbox маршрута. Зависит только от маршрута, не от каждого тика GPS. */
   const cameraPosition = useMemo(() => {
     if (hasRoute && effectiveRoutePoints.length > 1) {
-      const latitudes = effectiveRoutePoints.map((point) => point.latitude);
-      const longitudes = effectiveRoutePoints.map((point) => point.longitude);
-      const minLat = Math.min(...latitudes);
-      const maxLat = Math.max(...latitudes);
-      const minLon = Math.min(...longitudes);
-      const maxLon = Math.max(...longitudes);
-      const latSpan = Math.max(0.0001, maxLat - minLat);
-      const lonSpan = Math.max(0.0001, maxLon - minLon);
-      const maxSpan = Math.max(latSpan, lonSpan);
-
-      let zoom = 12;
-      if (maxSpan < 0.01) zoom = 14;
-      else if (maxSpan < 0.03) zoom = 13;
-      else if (maxSpan < 0.08) zoom = 12;
-      else if (maxSpan < 0.16) zoom = 11;
-      else zoom = 10;
-
-      return {
-        coordinates: {
-          latitude: (minLat + maxLat) / 2,
-          longitude: (minLon + maxLon) / 2,
-        },
-        zoom,
-      };
+      const fromRoute = appleMapsCameraFromRoutePoints(effectiveRoutePoints);
+      if (fromRoute) return fromRoute;
     }
-
     return {
-      coordinates: effectiveStartPoint ?? { latitude: 48.67, longitude: 45.29 },
+      coordinates: effectiveStartPoint ?? { ...DEFAULT_MAP_REGION_CENTER },
       zoom: 14,
     };
-  }, [effectiveStartPoint, hasRoute, routeIdentity]); // eslint-disable-line react-hooks/exhaustive-deps -- bbox по routeIdentity; effectiveRoutePoints меняет ссылку каждый рендер
+  }, [effectiveStartPoint, hasRoute, routeIdentity]);
 
-  /**
-   * MapLibre.Camera на каждом изменении props шлёт новый stop в натив; нестабильные массивы/объекты
-   * держали центр и мешали панорамированию. Здесь один стабильный stop на смену маршрута; без маршрута — старт/дефолт.
-   */
   const androidCameraStop = useMemo((): CameraStop => {
     const panelBottomPad = Platform.OS === 'android' ? 200 : 220;
     if (hasRoute && effectiveRoutePoints.length > 1) {
@@ -290,109 +203,49 @@ export default function ActiveRouteWidget() {
         animationMode: 'moveTo',
       };
     }
-    const lat = effectiveStartPoint?.latitude ?? 48.67;
-    const lon = effectiveStartPoint?.longitude ?? 45.29;
+    const lat = effectiveStartPoint?.latitude ?? DEFAULT_MAP_REGION_CENTER.latitude;
+    const lon = effectiveStartPoint?.longitude ?? DEFAULT_MAP_REGION_CENTER.longitude;
     return {
       centerCoordinate: [lon, lat],
       zoomLevel: 14,
       animationDuration: 0,
       animationMode: 'moveTo',
     };
-  }, [effectiveStartPoint?.latitude, effectiveStartPoint?.longitude, hasRoute, routeIdentity]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  /*
-  const syncUserPulseScreenPosition = useCallback(async () => {
-    if (Platform.OS !== 'android') {
-      setUserPulseScreenPos(null);
-      return;
-    }
-    if (!userLocationPoint) {
-      setUserPulseScreenPos(null);
-      return;
-    }
-    const map = androidMapRef.current;
-    if (!map) return;
-    try {
-      const [x, y] = await map.getPointInView([userLocationPoint.longitude, userLocationPoint.latitude]);
-      setUserPulseScreenPos({ x, y });
-    } catch {
-      // карта / стиль ещё не готовы
-    }
-  }, [userLocationPoint]);
-
-  const scheduleUserPulseScreenFromRegion = useCallback(() => {
-    if (userPulseRegionRafRef.current != null) return;
-    userPulseRegionRafRef.current = requestAnimationFrame(() => {
-      userPulseRegionRafRef.current = null;
-      void syncUserPulseScreenPosition();
-    });
-  }, [syncUserPulseScreenPosition]);
-
-  useEffect(() => {
-    void syncUserPulseScreenPosition();
-  }, [syncUserPulseScreenPosition]);
-
-  useEffect(
-    () => () => {
-      if (userPulseRegionRafRef.current != null) {
-        cancelAnimationFrame(userPulseRegionRafRef.current);
-      }
-    },
-    []
-  );
-  */
+  }, [effectiveStartPoint?.latitude, effectiveStartPoint?.longitude, hasRoute, routeIdentity]);
 
   const androidRouteLine = useMemo(
-    () => ({
-      type: 'Feature' as const,
-      properties: {},
-      geometry: {
-        type: 'LineString' as const,
-        coordinates: effectiveRoutePoints.map((point) => [point.longitude, point.latitude]),
-      },
-    }),
+    () => geoJsonLineStringFromRoutePoints(effectiveRoutePoints),
     [effectiveRoutePoints]
   );
+
   const androidRouteMarkers = useMemo(() => {
-    const features: {
-      type: 'Feature';
-      properties: { role: 'start' | 'finish' | 'user' };
-      geometry: { type: 'Point'; coordinates: number[] };
-    }[] = [];
+    const markers: Array<{
+      role: 'start' | 'finish' | 'user';
+      longitude: number;
+      latitude: number;
+    }> = [];
     if (effectiveStartPoint) {
-      features.push({
-        type: 'Feature',
-        properties: { role: 'start' },
-        geometry: {
-          type: 'Point',
-          coordinates: [effectiveStartPoint.longitude, effectiveStartPoint.latitude],
-        },
+      markers.push({
+        role: 'start',
+        longitude: effectiveStartPoint.longitude,
+        latitude: effectiveStartPoint.latitude,
       });
     }
     if (effectiveFinishPoint) {
-      features.push({
-        type: 'Feature',
-        properties: { role: 'finish' },
-        geometry: {
-          type: 'Point',
-          coordinates: [effectiveFinishPoint.longitude, effectiveFinishPoint.latitude],
-        },
+      markers.push({
+        role: 'finish',
+        longitude: effectiveFinishPoint.longitude,
+        latitude: effectiveFinishPoint.latitude,
       });
     }
     if (userLocationPoint) {
-      features.push({
-        type: 'Feature',
-        properties: { role: 'user' },
-        geometry: {
-          type: 'Point',
-          coordinates: [userLocationPoint.longitude, userLocationPoint.latitude],
-        },
+      markers.push({
+        role: 'user',
+        longitude: userLocationPoint.longitude,
+        latitude: userLocationPoint.latitude,
       });
     }
-    return {
-      type: 'FeatureCollection' as const,
-      features,
-    };
+    return geoJsonFeatureCollectionForMarkers(markers);
   }, [effectiveFinishPoint, effectiveStartPoint, userLocationPoint]);
 
   const updateDistances = useCallback(
@@ -484,8 +337,6 @@ export default function ActiveRouteWidget() {
   }, [loading, hasRoute, progressAnim]);
 
   useEffect(() => {
-    // При смене маршрута принудительно сбрасываем прогресс,
-    // чтобы исключить визуальный перенос значения с прошлого трека.
     setDistanceCovered(0);
     setDistanceRemaining(0);
     progressAnim.setValue(0);
@@ -638,35 +489,14 @@ export default function ActiveRouteWidget() {
           <MapLibre.Camera {...androidCameraStop} />
           {hasRoute && (
             <MapLibre.ShapeSource id="active-route-line-source" shape={androidRouteLine}>
-              <MapLibre.LineLayer
-                id="active-route-line-layer"
-                style={{
-                  lineColor: AppTheme.mapRouteLine,
-                  lineWidth: 4,
-                }}
-              />
+              <MapLibre.LineLayer id="active-route-line-layer" style={maplibreRouteLineLayerStyle} />
             </MapLibre.ShapeSource>
           )}
           {androidRouteMarkers.features.length > 0 && (
             <MapLibre.ShapeSource id="active-route-points-source" shape={androidRouteMarkers}>
               <MapLibre.CircleLayer
                 id="active-route-points-layer"
-                style={{
-                  circleRadius: 6,
-                  circleColor: [
-                    'match',
-                    ['get', 'role'],
-                    'start',
-                    AppTheme.mapPointStart,
-                    'finish',
-                    AppTheme.mapPointFinish,
-                    'user',
-                    AppTheme.mapUserOrLineBlue,
-                    AppTheme.foreground,
-                  ],
-                  circleStrokeWidth: 2,
-                  circleStrokeColor: AppTheme.foreground,
-                }}
+                style={maplibreRouteMarkersCircleLayerStyle}
               />
             </MapLibre.ShapeSource>
           )}
@@ -722,9 +552,6 @@ export default function ActiveRouteWidget() {
         />
       )}
       <View style={styles.infoPanel}>
-        {/* {!hasAnySelectedPoints && (
-          <Text style={styles.statusText}>Выберите старт и финиш во вкладке «Построить» и нажмите «Начать»</Text>
-        )} */}
         {loading && <Text style={styles.statusText}>{loadingStatus ?? 'Строим маршрут...'}</Text>}
         {savedRouteLoading && <Text style={styles.statusText}>Загружаем сохраненный маршрут...</Text>}
         {!loading && !!error && <Text style={styles.errorText}>Ошибка: {error}</Text>}
