@@ -11,7 +11,8 @@
     "lint": "expo lint",
     "prebuild:apk": "npx expo prebuild --platform android",
     "build:apk": "npx eas build --platform android --profile preview --local --output ./build/rivertrack.apk",
-    "build:apk:production": "npx eas build --platform android --profile production --local --output ./build/rivertrack.apk"
+    "build:apk:production": "npx eas build --platform android --profile production --local --output ./build/rivertrack.apk",
+    "build:aab:production": "npx eas build --platform android --profile production-aab --local --output ./build/rivertrack.aab"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",
