@@ -8,6 +8,7 @@ import {
   setPendingRouteSelection,
   upsertSavedRoute,
 } from '@/entities/route';
+import { useRustoreReviewOnFirstBuiltRoute } from '@/features/app-review';
 import { useRiverRoute } from '@/features/route-tracking';
 import { DEFAULT_MAP_REGION_CENTER } from '@/shared/config/map-defaults';
 import {
@@ -135,6 +136,13 @@ export default function ActiveRouteWidget() {
       ),
     [effectiveRoutePoints]
   );
+  const shouldRequestRustoreReview =
+    !resolvedSavedRouteId &&
+    !loading &&
+    !savedRouteLoading &&
+    !error &&
+    hasCompleteRouteData;
+  useRustoreReviewOnFirstBuiltRoute({ enabled: shouldRequestRustoreReview });
   const progressRatio = useMemo(() => {
     if (!hasRoute || totalDistance <= 0) return 0;
     const rawValue = distanceCovered / totalDistance;
