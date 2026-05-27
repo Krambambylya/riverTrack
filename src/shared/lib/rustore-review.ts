@@ -13,15 +13,14 @@ export async function tryScheduleRustoreReviewAfterFirstRouteBuilt(): Promise<vo
   scheduleInFlight = true;
   try {
     const alreadyShown = await AsyncStorage.getItem(RUSTORE_REVIEW_SHOWN_KEY);
-    if (alreadyShown === '1') return;
-
-    await AsyncStorage.setItem(RUSTORE_REVIEW_SHOWN_KEY, '1');
+    if (alreadyShown === '1' || alreadyShown === 'unsupported') return;
   } catch {
     scheduleInFlight = false;
     return;
   }
 
   setTimeout(() => {
+    scheduleInFlight = false;
     void showRustoreReview();
   }, REVIEW_DELAY_MS);
 }
@@ -41,8 +40,15 @@ async function showRustoreReview(): Promise<void> {
     const isRequested = await RustoreReview.requestReviewFlow();
     if (isRequested) {
       await RustoreReview.launchReviewFlow();
+      await AsyncStorage.setItem(RUSTORE_REVIEW_SHOWN_KEY, '1');
     }
   } catch (error) {
+    const message = String(error);
+    if (message.includes('RuStoreNotInstalledException')) {
+      await AsyncStorage.setItem(RUSTORE_REVIEW_SHOWN_KEY, 'unsupported');
+      console.log('[RiverTrack][RuStoreReview] пропускаем: RuStore не установлен');
+      return;
+    }
     console.log('[RiverTrack][RuStoreReview] не удалось показать оценку', error);
   }
 }

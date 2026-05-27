@@ -33,7 +33,7 @@ export function HomeRouteCard({
     <View style={cardStyles.wrap}>
       <View style={cardStyles.row}>
         <Pressable style={cardStyles.mainTap} onPress={onOpen}>
-          <Text style={cardStyles.title} numberOfLines={2}>
+          <Text style={cardStyles.title} numberOfLines={1} ellipsizeMode="tail">
             {route.title}
           </Text>
           <Text style={cardStyles.rivers} numberOfLines={1}>

@@ -18,8 +18,7 @@ const makeRouteKey = (start: LatLon, finish: LatLon) =>
 
 const makeRouteTitle = (rivers: string[]) => {
   if (!rivers.length) return 'Водный маршрут';
-  if (rivers.length === 1) return rivers[0];
-  return `${rivers[0]} и еще ${rivers.length - 1}`;
+  return rivers[0];
 };
 
 export const getSavedRoutes = async (): Promise<SavedRoute[]> => {

@@ -36,8 +36,6 @@ const styles = StyleSheet.create({
     paddingTop: 6,
     paddingBottom: 12,
     alignItems: 'center',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: AppTheme.border,
   },
   yearHeaderText: {
     fontSize: 13,
