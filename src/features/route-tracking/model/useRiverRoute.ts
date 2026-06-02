@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { LatLon, RoutePoint } from '@/entities/route/model/types';
+import {
+  buildRouteBySegments,
+  makeRouteCacheKey,
+  Segment,
+  SegmentBuildResult,
+} from './route-segments';
 
 type OverpassElement =
   | {
@@ -305,7 +311,7 @@ const simplify = (points: RoutePoint[], step = 2): RoutePoint[] => {
   return simplified;
 };
 
-const buildSegments = (start: LatLon, end: LatLon): Array<{ start: LatLon; end: LatLon }> => {
+const buildSegments = (start: LatLon, end: LatLon): Segment[] => {
   const directDistance = distance(start, end);
   if (directDistance <= SOFT_DISTANCE) {
     return [{ start, end }];
@@ -318,7 +324,7 @@ const buildSegments = (start: LatLon, end: LatLon): Array<{ start: LatLon; end: 
   for (let i = 0; i <= segmentCount; i += 1) {
     points.push(interpolatePoint(start, end, i / segmentCount));
   }
-  const segments: Array<{ start: LatLon; end: LatLon }> = [];
+  const segments: Segment[] = [];
   for (let i = 0; i < points.length - 1; i += 1) {
     segments.push({ start: points[i], end: points[i + 1] });
   }
@@ -329,7 +335,7 @@ const buildSegmentPolyline = (
   graph: Graph,
   startId: number,
   endId: number
-): { polyline: RoutePoint[]; rivers: string[] } => {
+): SegmentBuildResult => {
   const path = aStar(graph, startId, endId);
   const usedRivers = new Set<string>();
   for (let i = 0; i < path.length - 1; i++) {
@@ -383,9 +389,7 @@ export const useRiverRoute = (
       return;
     }
 
-    const cacheKey = `${start.lat.toFixed(6)},${start.lon.toFixed(6)}|${end.lat.toFixed(
-      6
-    )},${end.lon.toFixed(6)}`;
+    const cacheKey = makeRouteCacheKey(start, end);
     const cached = routeCache.get(cacheKey);
     if (cached) {
       setRoute(cached.route);
@@ -416,85 +420,30 @@ export const useRiverRoute = (
             setLoadingStatus(`Длинный маршрут, строим по частям (${segments.length} сегм.)...`);
           }
 
-          const stitchedPolyline: RoutePoint[] = [];
-          const stitchedRivers = new Set<string>();
-
-          const buildSingleSegment = async (
-            segmentStart: LatLon,
-            segmentEnd: LatLon,
-            segmentTitle: string,
-            options?: { expandedBBox?: boolean }
-          ): Promise<{ polyline: RoutePoint[]; rivers: string[] }> => {
-            setLoadingStatus(`${segmentTitle}: собираем область...`);
-            const bbox = options?.expandedBBox
-              ? buildBBoxWithPaddingMultiplier(segmentStart, segmentEnd, 2.5)
-              : buildBBox(segmentStart, segmentEnd);
-            const data = await fetchRiverData(bbox, (status) => {
-              if (isRequestActive()) setLoadingStatus(`${segmentTitle}: ${status}`);
-            });
-            if (!isRequestActive()) return { polyline: [], rivers: [] };
-
-            setLoadingStatus(`${segmentTitle}: строим граф рек...`);
-            const graph = buildGraph(data);
-            setLoadingStatus(`${segmentTitle}: ищем ближайшие точки...`);
-            const startNode = findNearestNode(graph, segmentStart);
-            const endNode = findNearestNode(graph, segmentEnd);
-            if (startNode === null || endNode === null) {
-              throw new Error('Не нашли ближайшие точки воды для части маршрута.');
+          const { stitchedPolyline, stitchedRivers, builtSegments } = await buildRouteBySegments(
+            segments,
+            {
+              isRequestActive,
+              onStatus: setLoadingStatus,
+              startedAt,
+            },
+            {
+              buildBBox,
+              buildBBoxWithPaddingMultiplier,
+              fetchRiverData,
+              buildGraph: buildGraph as (data: any) => any,
+              findNearestNode: findNearestNode as (graph: any, point: LatLon) => number | null,
+              buildSegmentPolyline: buildSegmentPolyline as (
+                graph: any,
+                startId: number,
+                endId: number
+              ) => SegmentBuildResult,
+            },
+            {
+              maxRouteBuildMs: MAX_ROUTE_BUILD_MS,
+              isSegmentBuildError,
             }
-
-            setLoadingStatus(`${segmentTitle}: прокладываем путь по руслам...`);
-            const result = buildSegmentPolyline(graph, startNode, endNode);
-            if (result.polyline.length < 2) {
-              throw new Error('Не удалось проложить путь по руслам для части маршрута.');
-            }
-            return result;
-          };
-
-          for (let i = 0; i < segments.length; i += 1) {
-            if (!isRequestActive()) return;
-            if (Date.now() - startedAt > MAX_ROUTE_BUILD_MS) {
-              throw new Error('Не успели построить маршрут за отведенное время. Попробуйте точки ближе.');
-            }
-            const segment = segments[i];
-            const segmentTitle = `Сегмент ${i + 1}/${segments.length}`;
-            let segmentResult: { polyline: RoutePoint[]; rivers: string[] } | null = null;
-
-            try {
-              segmentResult = await buildSingleSegment(segment.start, segment.end, segmentTitle);
-            } catch (segmentError) {
-              if (!isRequestActive()) return;
-              if (!isSegmentBuildError(segmentError)) {
-                throw segmentError;
-              }
-              try {
-                setLoadingStatus(`${segmentTitle}: расширяем область и повторяем...`);
-                segmentResult = await buildSingleSegment(segment.start, segment.end, segmentTitle, {
-                  expandedBBox: true,
-                });
-              } catch (expandedError) {
-                if (!isRequestActive()) return;
-                if (!isSegmentBuildError(expandedError) || i >= segments.length - 1) {
-                  throw expandedError;
-                }
-                const mergedEnd = segments[i + 1].end;
-                const mergedTitle = `Сегменты ${i + 1}-${i + 2}/${segments.length}`;
-                setLoadingStatus(`${mergedTitle}: объединяем соседние сегменты...`);
-                segmentResult = await buildSingleSegment(segment.start, mergedEnd, mergedTitle, {
-                  expandedBBox: true,
-                });
-                i += 1;
-              }
-            }
-            if (!segmentResult || !isRequestActive()) return;
-            segmentResult.rivers.forEach((river) => stitchedRivers.add(river));
-
-            if (stitchedPolyline.length === 0) {
-              stitchedPolyline.push(...segmentResult.polyline);
-            } else {
-              stitchedPolyline.push(...segmentResult.polyline.slice(1));
-            }
-          }
+          );
 
           if (!isRequestActive()) return;
           if (stitchedPolyline.length < 2) {
@@ -512,8 +461,8 @@ export const useRiverRoute = (
           setRoute(polyline);
           setRivers(riversFromPath);
           setLoadingStatus(
-            segments.length > 1
-              ? `Маршрут построен по ${segments.length} сегментам.`
+            builtSegments > 1
+              ? `Маршрут построен по ${builtSegments} сегментам.`
               : 'Маршрут успешно построен.'
           );
         } catch (requestError: unknown) {
