@@ -2,12 +2,11 @@ import { AppTheme } from '@/constants/theme';
 import type { SavedRoute } from '@/entities/route';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import React from 'react';
-import { Image, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { STAR_ICON_GREEN, STAR_ICON_LIGHT } from '../lib/constants';
 import { formatListDate } from '../lib/format-list-date';
 import { routeLengthKm } from '../lib/route-metrics';
-import { RiverPathSvg } from './river-path-svg';
 
 type HomeRouteCardProps = {
   route: SavedRoute;
@@ -24,8 +23,6 @@ export function HomeRouteCard({
   onStart,
   onToggleFavorite,
 }: HomeRouteCardProps) {
-  const { width: windowWidth } = useWindowDimensions();
-  const riverPathWidth = Math.max(160, windowWidth - 64);
   const km = routeLengthKm(route);
   const kmLabel = km < 0.05 ? '<0.1' : km < 10 ? km.toFixed(1) : Math.round(km).toString();
 
@@ -38,6 +35,9 @@ export function HomeRouteCard({
           </Text>
           <Text style={cardStyles.rivers} numberOfLines={1}>
             Реки: {route.rivers.length > 0 ? route.rivers.join(', ') : 'Река не указана'}
+          </Text>
+          <Text style={cardStyles.countries} numberOfLines={1}>
+            Страны: {route.countries && route.countries.length > 0 ? route.countries.join(', ') : 'Не определены'}
           </Text>
           <View style={cardStyles.metaRow}>
             <View style={cardStyles.metaItem}>
@@ -68,9 +68,6 @@ export function HomeRouteCard({
             />
           </Pressable>
         </View>
-      </View>
-      <View style={cardStyles.riverViz}>
-        <RiverPathSvg widthPx={riverPathWidth} route={route} />
       </View>
     </View>
   );
@@ -107,7 +104,12 @@ const cardStyles = StyleSheet.create({
   rivers: {
     fontSize: 14,
     color: AppTheme.mutedForeground,
-    marginBottom: 12,
+    marginBottom: 4,
+  },
+  countries: {
+    fontSize: 13,
+    color: AppTheme.mutedForeground,
+    marginBottom: 10,
   },
   metaRow: {
     flexDirection: 'row',
@@ -159,12 +161,5 @@ const cardStyles = StyleSheet.create({
   starIcon: {
     width: 26,
     height: 26,
-  },
-  riverViz: {
-    marginTop: 16,
-    paddingTop: 16,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(255,255,255,0.08)',
-    position: 'relative',
   },
 });

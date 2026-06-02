@@ -11,6 +11,8 @@ export function buildRouteShareMessage(route: SavedRoute): string {
     `Финиш: ${route.finish.lat.toFixed(5)}, ${route.finish.lon.toFixed(5)}`,
     '',
     `Реки: ${route.rivers.length > 0 ? route.rivers.join(', ') : 'не определены'}`,
+    '',
+    `Страны: ${route.countries && route.countries.length > 0 ? route.countries.join(', ') : 'не определены'}`,
   ];
   if (route.favorited) {
     lines.push('', 'Избранное: да');

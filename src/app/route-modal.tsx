@@ -172,6 +172,9 @@ export default function RouteModalScreen() {
                 Финиш: {route.finish.lat.toFixed(5)}, {route.finish.lon.toFixed(5)}
               </Text>
               <Text style={styles.meta}>Реки: {route.rivers.join(', ') || 'Не определены'}</Text>
+              <Text style={styles.meta}>
+                Страны: {route.countries && route.countries.length > 0 ? route.countries.join(', ') : 'Не определены'}
+              </Text>
               <Text style={styles.meta}>Дата: {formatDateRuDayMonthYear(route.createdAt)}</Text>
 
               {Platform.OS === 'android' && MapLibre ? (

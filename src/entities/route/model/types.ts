@@ -14,6 +14,7 @@ export type SavedRoute = {
   start: LatLon;
   finish: LatLon;
   rivers: string[];
+  countries?: string[];
   route: RoutePoint[];
   createdAt: string;
   updatedAt: string;

@@ -50,6 +50,7 @@ export const upsertSavedRoute = async (input: {
   start: LatLon;
   finish: LatLon;
   rivers: string[];
+  countries?: string[];
   route: RoutePoint[];
 }): Promise<SavedRoute> => {
   const routes = await getSavedRoutes();
@@ -63,6 +64,7 @@ export const upsertSavedRoute = async (input: {
       ...existing,
       title,
       rivers: input.rivers,
+      countries: input.countries ?? existing.countries ?? [],
       route: input.route,
       updatedAt: now,
     };
@@ -77,6 +79,7 @@ export const upsertSavedRoute = async (input: {
     start: input.start,
     finish: input.finish,
     rivers: input.rivers,
+    countries: input.countries ?? [],
     route: input.route,
     createdAt: now,
     updatedAt: now,

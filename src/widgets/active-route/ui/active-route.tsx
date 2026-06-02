@@ -23,6 +23,7 @@ import {
   geoJsonFeatureCollectionForMarkers,
   geoJsonLineStringFromRoutePoints,
 } from '@/shared/lib/route-geojson';
+import { resolveRouteCountries } from '@/shared/lib/route-countries';
 import { firstRouterParam } from '@/shared/lib/router-param';
 import type { CameraStop } from '@maplibre/maplibre-react-native';
 import along from '@turf/along';
@@ -546,17 +547,33 @@ export default function ActiveRouteWidget() {
     ) {
       return;
     }
-    upsertSavedRoute({
-      start: routeStart,
-      finish: routeFinish,
-      rivers,
-      route: effectiveRoutePoints,
-    })
-      .then(async (savedRoute) => {
+    let active = true;
+    (async () => {
+      try {
+        const countries = await resolveRouteCountries({
+          start: routeStart,
+          finish: routeFinish,
+          route: effectiveRoutePoints,
+        });
+        const savedRoute = await upsertSavedRoute({
+          start: routeStart,
+          finish: routeFinish,
+          rivers,
+          countries,
+          route: effectiveRoutePoints,
+        });
+        if (!active) return;
         await setActiveRouteId(savedRoute.id);
+        if (!active) return;
         setSaveStatus('saved');
-      })
-      .catch(() => setSaveStatus('error'));
+      } catch {
+        if (!active) return;
+        setSaveStatus('error');
+      }
+    })();
+    return () => {
+      active = false;
+    };
   }, [effectiveRoutePoints, error, hasCompleteRouteData, loading, resolvedSavedRouteId, rivers, routeFinish, routeStart]);
 
   useEffect(() => {
