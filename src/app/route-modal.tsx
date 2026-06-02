@@ -17,6 +17,9 @@ import {
 } from '@/shared/lib/route-geojson';
 import { buildRouteShareMessage } from '@/shared/lib/route-share-message';
 import { firstRouterParam } from '@/shared/lib/router-param';
+import type { CameraStop } from '@maplibre/maplibre-react-native';
+import { lineString } from '@turf/helpers';
+import length from '@turf/length';
 import { AppleMaps } from 'expo-maps';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -73,6 +76,36 @@ export default function RouteModalScreen() {
   const androidCenterCoordinate = useMemo(() => {
     return [previewCamera.coordinates.longitude, previewCamera.coordinates.latitude];
   }, [previewCamera]);
+  const androidCameraStop = useMemo((): CameraStop => {
+    if (!route || route.route.length < 2) {
+      return {
+        centerCoordinate: androidCenterCoordinate as [number, number],
+        zoomLevel: previewCamera.zoom,
+        animationDuration: 0,
+        animationMode: 'moveTo',
+      };
+    }
+    const latitudes = route.route.map((point) => point.latitude);
+    const longitudes = route.route.map((point) => point.longitude);
+    const minLat = Math.min(...latitudes);
+    const maxLat = Math.max(...latitudes);
+    const minLon = Math.min(...longitudes);
+    const maxLon = Math.max(...longitudes);
+    const latPad = Math.max((maxLat - minLat) * 0.12, 0.002);
+    const lonPad = Math.max((maxLon - minLon) * 0.12, 0.002);
+    return {
+      bounds: {
+        ne: [maxLon + lonPad, maxLat + latPad],
+        sw: [minLon - lonPad, minLat - latPad],
+        paddingTop: 28,
+        paddingBottom: 28,
+        paddingLeft: 28,
+        paddingRight: 28,
+      },
+      animationDuration: 0,
+      animationMode: 'moveTo',
+    };
+  }, [androidCenterCoordinate, previewCamera.zoom, route]);
 
   const androidRouteLine = useMemo(() => {
     if (!route) return null;
@@ -83,6 +116,11 @@ export default function RouteModalScreen() {
   const androidRoutePoints = useMemo(() => {
     if (!route) return null;
     return geoJsonStartFinishMarkers(route.start, route.finish);
+  }, [route]);
+  const totalRouteLengthKm = useMemo(() => {
+    if (!route || route.route.length < 2) return 0;
+    const coordinates = route.route.map((point) => [point.longitude, point.latitude]);
+    return length(lineString(coordinates), { units: 'kilometers' });
   }, [route]);
 
   const confirmRename = async () => {
@@ -123,7 +161,6 @@ export default function RouteModalScreen() {
           showsVerticalScrollIndicator={false}
           removeClippedSubviews={false}
           contentContainerStyle={styles.container}>
-
           {loading && <Text style={styles.statusText}>Загрузка...</Text>}
 
           {!loading && !route && (
@@ -175,6 +212,7 @@ export default function RouteModalScreen() {
               <Text style={styles.meta}>
                 Страны: {route.countries && route.countries.length > 0 ? route.countries.join(', ') : 'Не определены'}
               </Text>
+              <Text style={styles.meta}>Длина маршрута: {totalRouteLengthKm.toFixed(2)} км</Text>
               <Text style={styles.meta}>
                 Пройдено: {Math.max(0, route.coveredDistanceKm ?? 0).toFixed(2)} км
               </Text>
@@ -182,11 +220,7 @@ export default function RouteModalScreen() {
 
               {Platform.OS === 'android' && MapLibre ? (
                 <MapLibre.MapView style={styles.previewMap} mapStyle={MAPLIBRE_OSM_STYLE} logoEnabled={false}>
-                  <MapLibre.Camera
-                    zoomLevel={previewCamera.zoom}
-                    centerCoordinate={androidCenterCoordinate}
-                    animationDuration={0}
-                  />
+                  <MapLibre.Camera {...androidCameraStop} />
                   {androidRouteLine && (
                     <MapLibre.ShapeSource id="route-modal-line-source" shape={androidRouteLine}>
                       <MapLibre.LineLayer id="route-modal-line-layer" style={maplibreRouteLineLayerStyle} />
@@ -282,7 +316,7 @@ const styles = StyleSheet.create({
   },
   modalCard: {
     paddingTop: 12,
-    maxHeight: '85%',
+    maxHeight: '100%',
     backgroundColor: AppTheme.card,
     borderRadius: 18,
     borderWidth: 1,
@@ -291,8 +325,8 @@ const styles = StyleSheet.create({
   },
   container: {
     paddingHorizontal: 14,
-    paddingBottom: 14,
     gap: 10,
+    paddingBottom: 14,
   },
   titleRow: {
     flexDirection: 'row',
