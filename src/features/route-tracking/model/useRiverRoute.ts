@@ -46,9 +46,14 @@ const OVERPASS_URLS = [
 ];
 const OVERPASS_REQUEST_TIMEOUT_MS = 14_000;
 
-const MAX_DISTANCE = 30000;
+const SOFT_DISTANCE = 30_000;
+const MAX_DISTANCE = 120_000;
+const TARGET_SEGMENT_DISTANCE = 25_000;
+const MAX_SEGMENTS = 6;
+const MAX_ROUTE_BUILD_MS = 45_000;
 const DEBOUNCE_MS = 400;
 const R = 6371e3;
+const WATERWAY_TYPE_NAMES = new Set(['river', 'stream', 'canal']);
 
 const toRad = (value: number) => (value * Math.PI) / 180;
 
@@ -62,10 +67,27 @@ const distance = (a: LatLon, b: LatLon): number => {
   return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
 };
 
+const interpolatePoint = (start: LatLon, end: LatLon, t: number): LatLon => ({
+  lat: start.lat + (end.lat - start.lat) * t,
+  lon: start.lon + (end.lon - start.lon) * t,
+});
+
 const buildBBox = (start: LatLon, end: LatLon): string => {
   const diff = Math.abs(start.lat - end.lat) + Math.abs(start.lon - end.lon);
   const padding = Math.min(0.01, diff * 0.3);
 
+  return [
+    Math.min(start.lat, end.lat) - padding,
+    Math.min(start.lon, end.lon) - padding,
+    Math.max(start.lat, end.lat) + padding,
+    Math.max(start.lon, end.lon) + padding,
+  ].join(',');
+};
+
+const buildBBoxWithPaddingMultiplier = (start: LatLon, end: LatLon, multiplier: number): string => {
+  const diff = Math.abs(start.lat - end.lat) + Math.abs(start.lon - end.lon);
+  const basePadding = Math.min(0.01, diff * 0.3);
+  const padding = Math.min(0.05, basePadding * multiplier);
   return [
     Math.min(start.lat, end.lat) - padding,
     Math.min(start.lon, end.lon) - padding,
@@ -192,7 +214,14 @@ const buildGraph = (data: OverpassResponse): Graph => {
       if (!graph[a] || !graph[b]) continue;
 
       const dist = distance(graph[a], graph[b]);
-      const riverName = element.tags?.name ?? element.tags?.waterway;
+      const namedRiver = element.tags?.name?.trim();
+      const waterwayType = element.tags?.waterway?.trim().toLowerCase();
+      const riverName =
+        namedRiver && namedRiver.length > 0
+          ? namedRiver
+          : waterwayType && !WATERWAY_TYPE_NAMES.has(waterwayType)
+            ? waterwayType
+            : undefined;
       graph[a].neighbors.push({ id: b, dist, riverName });
       graph[b].neighbors.push({ id: a, dist, riverName });
     }
@@ -261,8 +290,65 @@ const aStar = (graph: Graph, startId: number, endId: number): number[] => {
   return path;
 };
 
-const simplify = (points: RoutePoint[], step = 2): RoutePoint[] =>
-  points.filter((_, index) => index % step === 0);
+const simplify = (points: RoutePoint[], step = 2): RoutePoint[] => {
+  if (points.length <= 2 || step <= 1) return points;
+  const simplified = points.filter((_, index) => index % step === 0);
+  const lastOriginal = points[points.length - 1];
+  const lastSimplified = simplified[simplified.length - 1];
+  if (
+    !lastSimplified ||
+    lastSimplified.latitude !== lastOriginal.latitude ||
+    lastSimplified.longitude !== lastOriginal.longitude
+  ) {
+    simplified.push(lastOriginal);
+  }
+  return simplified;
+};
+
+const buildSegments = (start: LatLon, end: LatLon): Array<{ start: LatLon; end: LatLon }> => {
+  const directDistance = distance(start, end);
+  if (directDistance <= SOFT_DISTANCE) {
+    return [{ start, end }];
+  }
+  const segmentCount = Math.min(
+    MAX_SEGMENTS,
+    Math.max(2, Math.ceil(directDistance / TARGET_SEGMENT_DISTANCE))
+  );
+  const points: LatLon[] = [];
+  for (let i = 0; i <= segmentCount; i += 1) {
+    points.push(interpolatePoint(start, end, i / segmentCount));
+  }
+  const segments: Array<{ start: LatLon; end: LatLon }> = [];
+  for (let i = 0; i < points.length - 1; i += 1) {
+    segments.push({ start: points[i], end: points[i + 1] });
+  }
+  return segments;
+};
+
+const buildSegmentPolyline = (
+  graph: Graph,
+  startId: number,
+  endId: number
+): { polyline: RoutePoint[]; rivers: string[] } => {
+  const path = aStar(graph, startId, endId);
+  const usedRivers = new Set<string>();
+  for (let i = 0; i < path.length - 1; i++) {
+    const from = path[i];
+    const to = path[i + 1];
+    const edge = graph[from].neighbors.find((neighbor) => neighbor.id === to);
+    if (edge?.riverName) usedRivers.add(edge.riverName);
+  }
+  const polyline = path.map((id) => ({
+    latitude: graph[id].lat,
+    longitude: graph[id].lon,
+  }));
+  return { polyline, rivers: Array.from(usedRivers) };
+};
+
+const isSegmentBuildError = (error: unknown): boolean =>
+  error instanceof Error &&
+  (error.message.includes('Не нашли ближайшие точки воды') ||
+    error.message.includes('Не удалось проложить путь по руслам'));
 
 export const useRiverRoute = (
   start: LatLon | null,
@@ -275,6 +361,7 @@ export const useRiverRoute = (
   const [error, setError] = useState<string | null>(null);
   const [loadingStatus, setLoadingStatus] = useState<string | null>(null);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const activeRequestIdRef = useRef(0);
 
   useEffect(() => {
     if (!start || !end) {
@@ -286,8 +373,9 @@ export const useRiverRoute = (
       return;
     }
 
-    if (distance(start, end) > MAX_DISTANCE) {
-      setError('Маршрут слишком длинный (более 30 км)');
+    const directDistance = distance(start, end);
+    if (directDistance > MAX_DISTANCE) {
+      setError('Маршрут слишком длинный (более 120 км). Выберите точки ближе.');
       setRoute([]);
       setRivers([]);
       setLoading(false);
@@ -315,67 +403,129 @@ export const useRiverRoute = (
     setError(null);
     setLoadingStatus('Подготавливаем запрос маршрута...');
 
-    debounceRef.current = setTimeout(() => {
-      let cancelled = false;
+    const requestId = activeRequestIdRef.current + 1;
+    activeRequestIdRef.current = requestId;
+    const isRequestActive = () => activeRequestIdRef.current === requestId;
 
+    debounceRef.current = setTimeout(() => {
       const run = async () => {
         try {
-          if (!cancelled) setLoadingStatus('Собираем область маршрута...');
-          const bbox = buildBBox(start, end);
-          const data = await fetchRiverData(bbox, (status) => {
-            if (!cancelled) setLoadingStatus(status);
-          });
-          if (!cancelled) setLoadingStatus('Строим граф рек...');
-          const graph = buildGraph(data);
-          if (!cancelled) setLoadingStatus('Ищем ближайшие точки старта и финиша...');
-          const startNode = findNearestNode(graph, start);
-          const endNode = findNearestNode(graph, end);
+          const startedAt = Date.now();
+          const segments = buildSegments(start, end);
+          if (segments.length > 1 && isRequestActive()) {
+            setLoadingStatus(`Длинный маршрут, строим по частям (${segments.length} сегм.)...`);
+          }
 
-          if (!startNode || !endNode) {
+          const stitchedPolyline: RoutePoint[] = [];
+          const stitchedRivers = new Set<string>();
+
+          const buildSingleSegment = async (
+            segmentStart: LatLon,
+            segmentEnd: LatLon,
+            segmentTitle: string,
+            options?: { expandedBBox?: boolean }
+          ): Promise<{ polyline: RoutePoint[]; rivers: string[] }> => {
+            setLoadingStatus(`${segmentTitle}: собираем область...`);
+            const bbox = options?.expandedBBox
+              ? buildBBoxWithPaddingMultiplier(segmentStart, segmentEnd, 2.5)
+              : buildBBox(segmentStart, segmentEnd);
+            const data = await fetchRiverData(bbox, (status) => {
+              if (isRequestActive()) setLoadingStatus(`${segmentTitle}: ${status}`);
+            });
+            if (!isRequestActive()) return { polyline: [], rivers: [] };
+
+            setLoadingStatus(`${segmentTitle}: строим граф рек...`);
+            const graph = buildGraph(data);
+            setLoadingStatus(`${segmentTitle}: ищем ближайшие точки...`);
+            const startNode = findNearestNode(graph, segmentStart);
+            const endNode = findNearestNode(graph, segmentEnd);
+            if (startNode === null || endNode === null) {
+              throw new Error('Не нашли ближайшие точки воды для части маршрута.');
+            }
+
+            setLoadingStatus(`${segmentTitle}: прокладываем путь по руслам...`);
+            const result = buildSegmentPolyline(graph, startNode, endNode);
+            if (result.polyline.length < 2) {
+              throw new Error('Не удалось проложить путь по руслам для части маршрута.');
+            }
+            return result;
+          };
+
+          for (let i = 0; i < segments.length; i += 1) {
+            if (!isRequestActive()) return;
+            if (Date.now() - startedAt > MAX_ROUTE_BUILD_MS) {
+              throw new Error('Не успели построить маршрут за отведенное время. Попробуйте точки ближе.');
+            }
+            const segment = segments[i];
+            const segmentTitle = `Сегмент ${i + 1}/${segments.length}`;
+            let segmentResult: { polyline: RoutePoint[]; rivers: string[] } | null = null;
+
+            try {
+              segmentResult = await buildSingleSegment(segment.start, segment.end, segmentTitle);
+            } catch (segmentError) {
+              if (!isRequestActive()) return;
+              if (!isSegmentBuildError(segmentError)) {
+                throw segmentError;
+              }
+              try {
+                setLoadingStatus(`${segmentTitle}: расширяем область и повторяем...`);
+                segmentResult = await buildSingleSegment(segment.start, segment.end, segmentTitle, {
+                  expandedBBox: true,
+                });
+              } catch (expandedError) {
+                if (!isRequestActive()) return;
+                if (!isSegmentBuildError(expandedError) || i >= segments.length - 1) {
+                  throw expandedError;
+                }
+                const mergedEnd = segments[i + 1].end;
+                const mergedTitle = `Сегменты ${i + 1}-${i + 2}/${segments.length}`;
+                setLoadingStatus(`${mergedTitle}: объединяем соседние сегменты...`);
+                segmentResult = await buildSingleSegment(segment.start, mergedEnd, mergedTitle, {
+                  expandedBBox: true,
+                });
+                i += 1;
+              }
+            }
+            if (!segmentResult || !isRequestActive()) return;
+            segmentResult.rivers.forEach((river) => stitchedRivers.add(river));
+
+            if (stitchedPolyline.length === 0) {
+              stitchedPolyline.push(...segmentResult.polyline);
+            } else {
+              stitchedPolyline.push(...segmentResult.polyline.slice(1));
+            }
+          }
+
+          if (!isRequestActive()) return;
+          if (stitchedPolyline.length < 2) {
             setRoute([]);
             setRivers([]);
             setLoadingStatus('Не нашли ближайшие точки воды для маршрута.');
             return;
           }
 
-          if (!cancelled) setLoadingStatus('Прокладываем путь по руслам...');
-          const path = aStar(graph, startNode, endNode);
-          const usedRivers = new Set<string>();
-          for (let i = 0; i < path.length - 1; i++) {
-            const from = path[i];
-            const to = path[i + 1];
-            const edge = graph[from].neighbors.find((neighbor) => neighbor.id === to);
-            if (edge?.riverName) usedRivers.add(edge.riverName);
-          }
-
-          let polyline: RoutePoint[] = path.map((id) => ({
-            latitude: graph[id].lat,
-            longitude: graph[id].lon,
-          }));
-          if (!cancelled) setLoadingStatus('Оптимизируем маршрут для карты...');
-          polyline = simplify(polyline, 2);
-
-          if (!cancelled) {
-            const riversFromPath = Array.from(usedRivers);
-            routeCache.set(cacheKey, { route: polyline, rivers: riversFromPath });
-            setRoute(polyline);
-            setRivers(riversFromPath);
-            setLoadingStatus('Маршрут успешно построен.');
-          }
+          setLoadingStatus('Оптимизируем маршрут для карты...');
+          const simplifyStep = segments.length > 1 ? 3 : 2;
+          const polyline = simplify(stitchedPolyline, simplifyStep);
+          const riversFromPath = Array.from(stitchedRivers);
+          routeCache.set(cacheKey, { route: polyline, rivers: riversFromPath });
+          setRoute(polyline);
+          setRivers(riversFromPath);
+          setLoadingStatus(
+            segments.length > 1
+              ? `Маршрут построен по ${segments.length} сегментам.`
+              : 'Маршрут успешно построен.'
+          );
         } catch (requestError: unknown) {
-          if (!cancelled) {
-            console.log('[RiverTrack][useRiverRoute] ошибка построения маршрута', requestError);
-            setError(
-              requestError instanceof Error ? requestError.message : 'Ошибка построения маршрута'
-            );
-            setRoute([]);
-            setRivers([]);
-            setLoadingStatus('Ошибка при построении маршрута.');
-          }
+          if (!isRequestActive()) return;
+          console.log('[RiverTrack][useRiverRoute] ошибка построения маршрута', requestError);
+          setError(requestError instanceof Error ? requestError.message : 'Ошибка построения маршрута');
+          setRoute([]);
+          setRivers([]);
+          setLoadingStatus('Ошибка при построении маршрута.');
         } finally {
-          if (!cancelled) {
-            setLoading(false);
-          }
+          if (!isRequestActive()) return;
+          setLoading(false);
         }
       };
 
@@ -383,6 +533,7 @@ export const useRiverRoute = (
     }, DEBOUNCE_MS);
 
     return () => {
+      activeRequestIdRef.current += 1;
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
   }, [start, end, retryToken]);
