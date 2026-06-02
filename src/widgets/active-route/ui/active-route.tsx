@@ -100,6 +100,7 @@ export default function ActiveRouteWidget() {
   const [distanceCovered, setDistanceCovered] = useState(0);
   const [distanceRemaining, setDistanceRemaining] = useState(0);
   const [userLocationPoint, setUserLocationPoint] = useState<{ latitude: number; longitude: number } | null>(null);
+  const [gpsAccuracyMeters, setGpsAccuracyMeters] = useState<number | null>(null);
 
   const [savedRoutePoints, setSavedRoutePoints] = useState<RoutePoint[]>([]);
   const [savedRivers, setSavedRivers] = useState<string[]>([]);
@@ -154,6 +155,14 @@ export default function ActiveRouteWidget() {
     if (value < 1) return value.toFixed(3);
     return value.toFixed(2);
   }, []);
+  const gpsSignal = useMemo(() => {
+    if (gpsAccuracyMeters == null || !Number.isFinite(gpsAccuracyMeters)) {
+      return { label: 'GPS: поиск', bars: '▱▱▱' };
+    }
+    if (gpsAccuracyMeters <= 10) return { label: `GPS: сильный (${Math.round(gpsAccuracyMeters)}м)`, bars: '▰▰▰' };
+    if (gpsAccuracyMeters <= 25) return { label: `GPS: средний (${Math.round(gpsAccuracyMeters)}м)`, bars: '▰▰▱' };
+    return { label: `GPS: слабый (${Math.round(gpsAccuracyMeters)}м)`, bars: '▰▱▱' };
+  }, [gpsAccuracyMeters]);
   const progressAnim = React.useRef(new Animated.Value(0)).current;
   const progressWidth = useMemo(
     () =>
@@ -268,6 +277,9 @@ export default function ActiveRouteWidget() {
       const remaining = totalDistance - covered;
       setDistanceRemaining(remaining > 0 ? remaining : 0);
       setUserLocationPoint({ latitude: coords.latitude, longitude: coords.longitude });
+      if (typeof coords.accuracy === 'number' && Number.isFinite(coords.accuracy)) {
+        setGpsAccuracyMeters(coords.accuracy);
+      }
     },
     [routeCoordinates, totalDistance]
   );
@@ -336,6 +348,7 @@ export default function ActiveRouteWidget() {
     if (loading || !hasRoute) {
       setDistanceCovered(0);
       setDistanceRemaining(0);
+      setGpsAccuracyMeters(null);
       progressAnim.setValue(0);
       if (!loading) {
         setLocationStatusError(false);
@@ -492,6 +505,12 @@ export default function ActiveRouteWidget() {
 
   return (
     <View style={styles.container}>
+      <View style={styles.gpsBadgeWrap} pointerEvents="none">
+        <View style={styles.gpsBadge}>
+          <Text style={styles.gpsBars}>{gpsSignal.bars}</Text>
+          <Text style={styles.gpsText}>{gpsSignal.label}</Text>
+        </View>
+      </View>
       {Platform.OS === 'android' && MapLibre ? (
         <MapLibre.MapView style={styles.map} mapStyle={MAPLIBRE_OSM_STYLE} logoEnabled={false}>
           <MapLibre.Camera {...androidCameraStop} />
@@ -623,6 +642,35 @@ export default function ActiveRouteWidget() {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   map: { width: '100%', height: '100%' },
+  gpsBadgeWrap: {
+    position: 'absolute',
+    top: Platform.OS === 'android' ? 18 : 56,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 5,
+  },
+  gpsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(30, 30, 30, 0.72)',
+    borderWidth: 1,
+    borderColor: AppTheme.borderStrong,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+  gpsBars: {
+    color: AppTheme.mapPointStart,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  gpsText: {
+    color: AppTheme.foreground,
+    fontSize: 12,
+    fontWeight: '600',
+  },
   infoPanel: {
     position: 'absolute',
     bottom: Platform.OS === 'android' ? 20 : 120,
