@@ -175,6 +175,9 @@ export default function RouteModalScreen() {
               <Text style={styles.meta}>
                 Страны: {route.countries && route.countries.length > 0 ? route.countries.join(', ') : 'Не определены'}
               </Text>
+              <Text style={styles.meta}>
+                Пройдено: {Math.max(0, route.coveredDistanceKm ?? 0).toFixed(2)} км
+              </Text>
               <Text style={styles.meta}>Дата: {formatDateRuDayMonthYear(route.createdAt)}</Text>
 
               {Platform.OS === 'android' && MapLibre ? (

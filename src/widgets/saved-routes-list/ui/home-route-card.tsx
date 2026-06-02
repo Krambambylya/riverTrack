@@ -25,6 +25,8 @@ export function HomeRouteCard({
 }: HomeRouteCardProps) {
   const km = routeLengthKm(route);
   const kmLabel = km < 0.05 ? '<0.1' : km < 10 ? km.toFixed(1) : Math.round(km).toString();
+  const coveredKm = Math.max(0, route.coveredDistanceKm ?? 0);
+  const coveredKmLabel = coveredKm < 0.05 ? '0.0' : coveredKm < 10 ? coveredKm.toFixed(1) : coveredKm.toFixed(0);
 
   return (
     <View style={cardStyles.wrap}>
@@ -48,6 +50,10 @@ export function HomeRouteCard({
               <MaterialCommunityIcons name="navigation-variant" size={16} color={AppTheme.mutedForeground} />
               <Text style={cardStyles.metaText}>{kmLabel} км</Text>
             </View>
+          </View>
+          <View style={cardStyles.progressRow}>
+            <MaterialCommunityIcons name="map-marker-distance" size={16} color={AppTheme.mutedForeground} />
+            <Text style={cardStyles.progressText}>Пройдено: {coveredKmLabel} км</Text>
           </View>
         </Pressable>
         <View style={cardStyles.actionsCol}>
@@ -120,6 +126,17 @@ const cardStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+  },
+  progressRow: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  progressText: {
+    fontSize: 13,
+    color: AppTheme.mutedForeground,
+    fontWeight: '700',
   },
   metaText: {
     fontSize: 13,

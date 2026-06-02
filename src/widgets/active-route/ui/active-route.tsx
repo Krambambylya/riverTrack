@@ -6,6 +6,7 @@ import {
   RoutePoint,
   setActiveRouteId,
   setPendingRouteSelection,
+  updateSavedRouteCoveredDistance,
   upsertSavedRoute,
 } from '@/entities/route';
 import { useRustoreReviewOnFirstBuiltRoute } from '@/features/app-review';
@@ -113,6 +114,7 @@ export default function ActiveRouteWidget() {
   const [locationStatusMessage, setLocationStatusMessage] = useState<string>('');
   const [locationStatusError, setLocationStatusError] = useState(false);
   const [routeRetryToken, setRouteRetryToken] = useState(0);
+  const [lastPersistedCoveredKm, setLastPersistedCoveredKm] = useState(0);
   const { route: routePoints, rivers, loading, error, loadingStatus } = useRiverRoute(
     routeStart,
     routeFinish,
@@ -424,6 +426,7 @@ export default function ActiveRouteWidget() {
     if (loading || !hasRoute) {
       setDistanceCovered(0);
       setDistanceRemaining(0);
+      setLastPersistedCoveredKm(0);
       setGpsAccuracyMeters(null);
       progressAnim.setValue(0);
       if (!loading) {
@@ -518,6 +521,7 @@ export default function ActiveRouteWidget() {
       setSavedStartPoint(null);
       setSavedFinishPoint(null);
       setSavedRouteLoading(false);
+      setLastPersistedCoveredKm(0);
       return;
     }
     let active = true;
@@ -527,6 +531,7 @@ export default function ActiveRouteWidget() {
       if (!active) return;
       setSavedRoutePoints(savedRoute?.route ?? []);
       setSavedRivers(savedRoute?.rivers ?? []);
+      setLastPersistedCoveredKm(savedRoute?.coveredDistanceKm ?? 0);
       setSavedStartPoint(savedRoute ? { latitude: savedRoute.start.lat, longitude: savedRoute.start.lon } : null);
       setSavedFinishPoint(savedRoute ? { latitude: savedRoute.finish.lat, longitude: savedRoute.finish.lon } : null);
       setSavedRouteLoading(false);
@@ -560,6 +565,7 @@ export default function ActiveRouteWidget() {
           finish: routeFinish,
           rivers,
           countries,
+          coveredDistanceKm: 0,
           route: effectiveRoutePoints,
         });
         if (!active) return;
@@ -580,6 +586,26 @@ export default function ActiveRouteWidget() {
     if (!resolvedSavedRouteId) return;
     setActiveRouteId(resolvedSavedRouteId).catch(() => undefined);
   }, [resolvedSavedRouteId]);
+
+  useEffect(() => {
+    if (!resolvedSavedRouteId || !hasRoute) return;
+    if (!Number.isFinite(distanceCovered) || distanceCovered <= 0) return;
+    const shouldPersist = distanceCovered - lastPersistedCoveredKm >= 0.05;
+    if (!shouldPersist) return;
+    let active = true;
+    (async () => {
+      try {
+        const updated = await updateSavedRouteCoveredDistance(resolvedSavedRouteId, distanceCovered);
+        if (!active || !updated) return;
+        setLastPersistedCoveredKm(updated.coveredDistanceKm ?? distanceCovered);
+      } catch {
+        // best-effort progress persistence
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [distanceCovered, hasRoute, lastPersistedCoveredKm, resolvedSavedRouteId]);
 
   useEffect(() => {
     if (saveStatus !== 'saved') return;

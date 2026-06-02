@@ -51,6 +51,7 @@ export const upsertSavedRoute = async (input: {
   finish: LatLon;
   rivers: string[];
   countries?: string[];
+  coveredDistanceKm?: number;
   route: RoutePoint[];
 }): Promise<SavedRoute> => {
   const routes = await getSavedRoutes();
@@ -65,6 +66,7 @@ export const upsertSavedRoute = async (input: {
       title,
       rivers: input.rivers,
       countries: input.countries ?? existing.countries ?? [],
+      coveredDistanceKm: input.coveredDistanceKm ?? existing.coveredDistanceKm ?? 0,
       route: input.route,
       updatedAt: now,
     };
@@ -80,6 +82,7 @@ export const upsertSavedRoute = async (input: {
     finish: input.finish,
     rivers: input.rivers,
     countries: input.countries ?? [],
+    coveredDistanceKm: input.coveredDistanceKm ?? 0,
     route: input.route,
     createdAt: now,
     updatedAt: now,
@@ -123,6 +126,26 @@ export const setSavedRouteFavorited = async (id: string, favorited: boolean): Pr
   const updated: SavedRoute = {
     ...target,
     favorited,
+    updatedAt: new Date().toISOString(),
+  };
+  const nextRoutes = routes.map((route) => (route.id === id ? updated : route));
+  await writeRoutes(nextRoutes);
+  return updated;
+};
+
+export const updateSavedRouteCoveredDistance = async (
+  id: string,
+  coveredDistanceKm: number
+): Promise<SavedRoute | null> => {
+  const routes = await getSavedRoutes();
+  const target = routes.find((route) => route.id === id);
+  if (!target) return null;
+  const nextValue = Math.max(0, coveredDistanceKm);
+  const currentValue = target.coveredDistanceKm ?? 0;
+  if (nextValue <= currentValue) return target;
+  const updated: SavedRoute = {
+    ...target,
+    coveredDistanceKm: nextValue,
     updatedAt: new Date().toISOString(),
   };
   const nextRoutes = routes.map((route) => (route.id === id ? updated : route));
