@@ -20,13 +20,14 @@ import { MAPLIBRE_OSM_STYLE } from '@/shared/config/maplibre-osm-style';
 import { appleMapsCameraFromRoutePoints } from '@/shared/lib/apple-maps-camera';
 import { getReliableCurrentPositionAsync } from '@/shared/lib/get-reliable-current-position';
 import { getAndroidMapLibre } from '@/shared/lib/maplibre-android';
+import { resolveRouteCountries } from '@/shared/lib/route-countries';
 import {
   geoJsonFeatureCollectionForMarkers,
   geoJsonLineStringFromRoutePoints,
 } from '@/shared/lib/route-geojson';
-import { resolveRouteCountries } from '@/shared/lib/route-countries';
 import { firstRouterParam } from '@/shared/lib/router-param';
-import type { CameraStop } from '@maplibre/maplibre-react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import type { CameraRef, CameraStop } from '@maplibre/maplibre-react-native';
 import along from '@turf/along';
 import { lineString, point } from '@turf/helpers';
 import length from '@turf/length';
@@ -115,6 +116,8 @@ export default function ActiveRouteWidget() {
   const [locationStatusError, setLocationStatusError] = useState(false);
   const [routeRetryToken, setRouteRetryToken] = useState(0);
   const [lastPersistedCoveredKm, setLastPersistedCoveredKm] = useState(0);
+  const [focusOnUserForAppleMap, setFocusOnUserForAppleMap] = useState(false);
+  const androidCameraRef = React.useRef<CameraRef | null>(null);
   const { route: routePoints, rivers, loading, error, loadingStatus } = useRiverRoute(
     routeStart,
     routeFinish,
@@ -183,6 +186,23 @@ export default function ActiveRouteWidget() {
   const handleRetryRouteLoading = useCallback(() => {
     setRouteRetryToken((current) => current + 1);
   }, []);
+  const handleFocusOnUser = useCallback(() => {
+    if (!userLocationPoint) {
+      setLocationStatusError(false);
+      setLocationStatusMessage('Позиция пользователя еще не определена.');
+      return;
+    }
+    if (Platform.OS === 'android') {
+      androidCameraRef.current?.setCamera?.({
+        centerCoordinate: [userLocationPoint.longitude, userLocationPoint.latitude],
+        zoomLevel: 16,
+        animationDuration: 600,
+        animationMode: 'flyTo',
+      });
+      return;
+    }
+    setFocusOnUserForAppleMap(true);
+  }, [userLocationPoint]);
   const routeIdentity = useMemo(() => {
     if (!hasRoute) return 'no-route';
     const first = effectiveRoutePoints[0];
@@ -190,6 +210,12 @@ export default function ActiveRouteWidget() {
     return `${effectiveRoutePoints.length}:${first.latitude},${first.longitude}:${last.latitude},${last.longitude}`;
   }, [effectiveRoutePoints, hasRoute]);
   const cameraPosition = useMemo(() => {
+    if (focusOnUserForAppleMap && userLocationPoint) {
+      return {
+        coordinates: userLocationPoint,
+        zoom: 16,
+      };
+    }
     if (hasRoute && effectiveRoutePoints.length > 1) {
       const fromRoute = appleMapsCameraFromRoutePoints(effectiveRoutePoints);
       if (fromRoute) return fromRoute;
@@ -198,7 +224,7 @@ export default function ActiveRouteWidget() {
       coordinates: effectiveStartPoint ?? { ...DEFAULT_MAP_REGION_CENTER },
       zoom: 14,
     };
-  }, [effectiveStartPoint, hasRoute, routeIdentity]);
+  }, [effectiveStartPoint, focusOnUserForAppleMap, hasRoute, routeIdentity, userLocationPoint]);
 
   const androidCameraStop = useMemo((): CameraStop => {
     const panelBottomPad = Platform.OS === 'android' ? 200 : 220;
@@ -428,6 +454,7 @@ export default function ActiveRouteWidget() {
       setDistanceRemaining(0);
       setLastPersistedCoveredKm(0);
       setGpsAccuracyMeters(null);
+      setFocusOnUserForAppleMap(false);
       progressAnim.setValue(0);
       if (!loading) {
         setLocationStatusError(false);
@@ -631,7 +658,7 @@ export default function ActiveRouteWidget() {
       </View>
       {Platform.OS === 'android' && MapLibre ? (
         <MapLibre.MapView style={styles.map} mapStyle={MAPLIBRE_OSM_STYLE} logoEnabled={false}>
-          <MapLibre.Camera {...androidCameraStop} />
+          <MapLibre.Camera ref={androidCameraRef} {...androidCameraStop} />
           {segmentedRoutePoints.remaining.length > 1 && (
             <MapLibre.ShapeSource id="active-route-line-remaining-source" shape={androidRemainingRouteLine}>
               <MapLibre.LineLayer
@@ -713,6 +740,13 @@ export default function ActiveRouteWidget() {
           ]}
         />
       )}
+      <View style={styles.whereIAmWrap} pointerEvents="box-none">
+        <Pressable
+          style={({ pressed }) => [styles.whereIAmButton, pressed && styles.whereIAmButtonPressed]}
+          onPress={handleFocusOnUser}>
+          <MaterialCommunityIcons name="crosshairs-gps" size={20} color={AppTheme.foreground} />
+        </Pressable>
+      </View>
       <View style={styles.infoPanel}>
         {loading && <Text style={styles.statusText}>{loadingStatus ?? 'Строим маршрут...'}</Text>}
         {savedRouteLoading && <Text style={styles.statusText}>Загружаем сохраненный маршрут...</Text>}
@@ -805,6 +839,26 @@ const styles = StyleSheet.create({
     color: AppTheme.foreground,
     fontSize: 12,
     fontWeight: '600',
+  },
+  whereIAmWrap: {
+    position: 'absolute',
+    right: 20,
+    top: Platform.OS === 'android' ? 60 : 214,
+    zIndex: 6,
+  },
+  whereIAmButton: {
+    minHeight: 42,
+    minWidth: 42,
+    borderRadius: 999,
+    backgroundColor: 'rgba(30, 30, 30, 0.8)',
+    borderWidth: 1,
+    borderColor: AppTheme.borderStrong,
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  whereIAmButtonPressed: {
+    opacity: 0.85,
   },
   infoPanel: {
     position: 'absolute',
