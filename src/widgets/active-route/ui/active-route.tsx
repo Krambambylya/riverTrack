@@ -36,6 +36,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 const FAKE_ROUTE_PROGRESS_FOR_TEST: number | null = __DEV__ ? 0.73 : null;
+const MAP_ROUTE_LINE_REMAINING = 'rgba(43, 122, 75, 0.55)';
 
 export default function ActiveRouteWidget() {
   const MapLibre = getAndroidMapLibre();
@@ -233,6 +234,80 @@ export default function ActiveRouteWidget() {
   const androidRouteLine = useMemo(
     () => geoJsonLineStringFromRoutePoints(effectiveRoutePoints),
     [effectiveRoutePoints]
+  );
+  const segmentedRoutePoints = useMemo(() => {
+    if (effectiveRoutePoints.length < 2 || totalDistance <= 0) {
+      return { covered: [] as RoutePoint[], remaining: [] as RoutePoint[] };
+    }
+    const clampedCovered = Math.max(0, Math.min(totalDistance, distanceCovered));
+    if (clampedCovered <= 0) {
+      return { covered: [] as RoutePoint[], remaining: effectiveRoutePoints };
+    }
+    if (clampedCovered >= totalDistance) {
+      return { covered: effectiveRoutePoints, remaining: [] as RoutePoint[] };
+    }
+
+    const line = lineString(routeCoordinates);
+    const splitPoint = along(line, Math.min(clampedCovered, totalDistance * 0.999999), {
+      units: 'kilometers',
+    });
+    const [splitLon, splitLat] = splitPoint.geometry.coordinates as [number, number];
+    const splitRoutePoint: RoutePoint = { latitude: splitLat, longitude: splitLon };
+
+    const covered: RoutePoint[] = [effectiveRoutePoints[0]];
+    let consumedKm = 0;
+    let splitInserted = false;
+
+    for (let i = 1; i < effectiveRoutePoints.length; i += 1) {
+      const prev = effectiveRoutePoints[i - 1];
+      const curr = effectiveRoutePoints[i];
+      const segKm = length(
+        lineString([
+          [prev.longitude, prev.latitude],
+          [curr.longitude, curr.latitude],
+        ]),
+        { units: 'kilometers' }
+      );
+      if (consumedKm + segKm < clampedCovered) {
+        covered.push(curr);
+        consumedKm += segKm;
+        continue;
+      }
+      covered.push(splitRoutePoint);
+      splitInserted = true;
+      break;
+    }
+
+    if (!splitInserted) {
+      return { covered: effectiveRoutePoints, remaining: [] as RoutePoint[] };
+    }
+
+    const coveredLast = covered[covered.length - 1];
+    const remainingStartIndex = effectiveRoutePoints.findIndex(
+      (point) => point.latitude === coveredLast.latitude && point.longitude === coveredLast.longitude
+    );
+    const remaining =
+      remainingStartIndex >= 0
+        ? effectiveRoutePoints.slice(remainingStartIndex)
+        : [splitRoutePoint, ...effectiveRoutePoints.slice(Math.max(1, covered.length - 1))];
+
+    if (
+      remaining.length > 0 &&
+      (remaining[0].latitude !== splitRoutePoint.latitude ||
+        remaining[0].longitude !== splitRoutePoint.longitude)
+    ) {
+      remaining.unshift(splitRoutePoint);
+    }
+
+    return { covered, remaining };
+  }, [distanceCovered, effectiveRoutePoints, routeCoordinates, totalDistance]);
+  const androidCoveredRouteLine = useMemo(
+    () => geoJsonLineStringFromRoutePoints(segmentedRoutePoints.covered),
+    [segmentedRoutePoints.covered]
+  );
+  const androidRemainingRouteLine = useMemo(
+    () => geoJsonLineStringFromRoutePoints(segmentedRoutePoints.remaining),
+    [segmentedRoutePoints.remaining]
   );
 
   const androidRouteMarkers = useMemo(() => {
@@ -514,8 +589,16 @@ export default function ActiveRouteWidget() {
       {Platform.OS === 'android' && MapLibre ? (
         <MapLibre.MapView style={styles.map} mapStyle={MAPLIBRE_OSM_STYLE} logoEnabled={false}>
           <MapLibre.Camera {...androidCameraStop} />
-          {hasRoute && (
-            <MapLibre.ShapeSource id="active-route-line-source" shape={androidRouteLine}>
+          {segmentedRoutePoints.remaining.length > 1 && (
+            <MapLibre.ShapeSource id="active-route-line-remaining-source" shape={androidRemainingRouteLine}>
+              <MapLibre.LineLayer
+                id="active-route-line-remaining-layer"
+                style={{ ...maplibreRouteLineLayerStyle, lineColor: MAP_ROUTE_LINE_REMAINING }}
+              />
+            </MapLibre.ShapeSource>
+          )}
+          {segmentedRoutePoints.covered.length > 1 && (
+            <MapLibre.ShapeSource id="active-route-line-source" shape={androidCoveredRouteLine}>
               <MapLibre.LineLayer id="active-route-line-layer" style={maplibreRouteLineLayerStyle} />
             </MapLibre.ShapeSource>
           )}
@@ -533,17 +616,26 @@ export default function ActiveRouteWidget() {
           style={styles.map}
           cameraPosition={cameraPosition}
           properties={{ isMyLocationEnabled: false }}
-          polylines={
-            hasRoute
+          polylines={[
+            ...(segmentedRoutePoints.remaining.length > 1
               ? [
                 {
-                  coordinates: effectiveRoutePoints,
+                  coordinates: segmentedRoutePoints.remaining,
+                  color: MAP_ROUTE_LINE_REMAINING,
+                  width: 4,
+                },
+              ]
+              : []),
+            ...(segmentedRoutePoints.covered.length > 1
+              ? [
+                {
+                  coordinates: segmentedRoutePoints.covered,
                   color: AppTheme.mapRouteLine,
                   width: 4,
                 },
               ]
-              : []
-          }
+              : []),
+          ]}
           markers={[
             ...(effectiveStartPoint
               ? [
